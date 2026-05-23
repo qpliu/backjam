@@ -5,47 +5,68 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/go-mp3"
-	"github.com/hraban/opus"
+
+	"backjam/jamulus"
 )
 
-func StreamMP3(r io.Reader, client *JamulusClient) {
+func StreamMP3(r io.Reader, client *jamulus.Client) {
 	decoder, err := mp3.NewDecoder(r)
 	if err != nil {
 		panic(err.Error())
 	}
-	sampleRate := decoder.SampleRate()
+	decodeSampleRate := decoder.SampleRate()
 
-	encoder, err := opus.NewEncoder(sampleRate, 2, opus.AppAudio)
-	if err != nil {
-		panic(err.Error())
-	}
+	const channels = 2
+	const sampleRate = 48000
+	const frameSizeMs = 20
 
-	frameSizeMs := 20
-	frameSizeBytes := sampleRate / 1000 * frameSizeMs * 2 * 2
+	decodeFrameSize := decodeSampleRate * frameSizeMs * channels / 1000
+	frameSize := sampleRate * frameSizeMs * channels / 1000
 
-	buf := make([]byte, frameSizeBytes)
-	frame := make([]int64, frameSizeBytes/2)
+	buf := make([]byte, 2*decodeFrameSize)
+	decodeFrame := make([]int16, decodeFrameSize)
+	frame := make([]int16, frameSize)
 	t := time.Now().Add(frameSizeMs * time.Millisecond)
-	for {
-		n, err := decoder.Read(buf)
-		if err != nil && err != io.EOF {
-			panic(err.Error())
+	chatMessages := []string{"5 second", "30 second", "60 second"}
+	chatTimes := []time.Time{t.Add(5 * time.Second), t.Add(30 * time.Second), t.Add(60 * time.Second)}
+	for j := 0; ; j++ {
+		count := 0
+		for count < 2*decodeFrameSize {
+			n, err := decoder.Read(buf[count:])
+			if err != nil && err != io.EOF {
+				panic(err.Error())
+			}
+			if n == 0 {
+				break
+			}
+			count += n
 		}
-		if n == 0 {
+		if count == 0 {
 			break
 		}
-		for i := range n / 2 {
-			frame[i] = int16(buf[i*2]) | (int16(buf[i*2+1]) << 8)
+		if count < 2*decodeFrameSize {
+			clear(buf[count:])
 		}
-		opusFrame, err := encoder.encode(frame)
+		for i := range decodeFrameSize {
+			decodeFrame[i] = int16(buf[2*i]) | (int16(buf[2*i+1]) << 8)
+		}
+		n, err := jamulus.ResampleLinear(decodeFrame, decodeSampleRate, sampleRate, channels, frame)
 		if err != nil {
 			panic(err.Error())
+		}
+		if n < frameSize {
+			clear(frame[n:])
 		}
 		time.Sleep(t.Sub(time.Now()))
 		t = t.Add(frameSizeMs * time.Millisecond)
 
-		if err := client.SendOpusFrame(opusFrame); err != nil {
+		if err := client.SendRawAudioFrame(frame); err != nil {
 			panic(err.Error())
+		}
+		if len(chatTimes) > 0 && time.Now().After(chatTimes[0]) {
+			client.SendChatMessage(chatMessages[0])
+			chatTimes = chatTimes[1:]
+			chatMessages = chatMessages[1:]
 		}
 	}
 }
