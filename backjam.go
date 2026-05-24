@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"os"
+	"time"
 
 	"backjam/jamulus"
 )
@@ -24,9 +24,12 @@ func main() {
 		client.UpdateChannelName("backjam-bot")
 	})
 
-	client.SetOnRawAudioSupported(func() {
-		fmt.Printf("raw audio supported\n")
-	})
-
-	StreamMP3(input, client)
+	StreamMP3(input, []ChatMessage{
+		ChatMessage{5 * time.Second, "5 second"},
+		ChatMessage{10 * time.Second, "10 second"},
+		ChatMessage{15 * time.Second, "15 second"},
+		ChatMessage{30 * time.Second, "30 second"},
+		ChatMessage{45 * time.Second, "45 second"},
+		ChatMessage{60 * time.Second, "60 second"},
+	}, client)
 }

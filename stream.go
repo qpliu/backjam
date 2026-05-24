@@ -9,7 +9,12 @@ import (
 	"backjam/jamulus"
 )
 
-func StreamMP3(r io.Reader, client *jamulus.Client) {
+type ChatMessage struct {
+	dt      time.Duration
+	message string
+}
+
+func StreamMP3(r io.Reader, chats []ChatMessage, client *jamulus.Client) {
 	decoder, err := mp3.NewDecoder(r)
 	if err != nil {
 		panic(err.Error())
@@ -18,18 +23,23 @@ func StreamMP3(r io.Reader, client *jamulus.Client) {
 
 	const channels = 2
 	const sampleRate = 48000
-	const frameSizeMs = 20
+	const samplesPerPacket = 128
 
-	decodeFrameSize := decodeSampleRate * frameSizeMs * channels / 1000
-	frameSize := sampleRate * frameSizeMs * channels / 1000
+	decodeFrameSize := decodeSampleRate * channels
+	resampleFrameSize := sampleRate * channels
+
+	// At nanosecond resolution, with a sample rate of 48000,
+	// this will send packets 1 microsecond too early per 4 seconds
+	// so after 4 minutes, the packets will be sent 60 microseconds too
+	// early, which should not overflow the buffers.
+	dt := time.Second * samplesPerPacket / sampleRate
 
 	buf := make([]byte, 2*decodeFrameSize)
 	decodeFrame := make([]int16, decodeFrameSize)
-	frame := make([]int16, frameSize)
-	t := time.Now().Add(frameSizeMs * time.Millisecond)
-	chatMessages := []string{"5 second", "30 second", "60 second"}
-	chatTimes := []time.Time{t.Add(5 * time.Second), t.Add(30 * time.Second), t.Add(60 * time.Second)}
-	for j := 0; ; j++ {
+	resampleFrame := make([]int16, resampleFrameSize)
+	t0 := time.Now().Add(100 * time.Millisecond)
+	t := t0
+	for {
 		count := 0
 		for count < 2*decodeFrameSize {
 			n, err := decoder.Read(buf[count:])
@@ -50,23 +60,24 @@ func StreamMP3(r io.Reader, client *jamulus.Client) {
 		for i := range decodeFrameSize {
 			decodeFrame[i] = int16(buf[2*i]) | (int16(buf[2*i+1]) << 8)
 		}
-		n, err := jamulus.ResampleLinear(decodeFrame, decodeSampleRate, sampleRate, channels, frame)
+		n, err := jamulus.ResampleLinear(decodeFrame, decodeSampleRate, sampleRate, channels, resampleFrame)
 		if err != nil {
 			panic(err.Error())
 		}
-		if n < frameSize {
-			clear(frame[n:])
+		if n < resampleFrameSize {
+			clear(resampleFrame[n:])
 		}
-		time.Sleep(t.Sub(time.Now()))
-		t = t.Add(frameSizeMs * time.Millisecond)
+		for i := 0; i < resampleFrameSize; i += samplesPerPacket * channels {
+			time.Sleep(t.Sub(time.Now()))
+			t = t.Add(dt)
 
-		if err := client.SendRawAudioFrame(frame); err != nil {
-			panic(err.Error())
-		}
-		if len(chatTimes) > 0 && time.Now().After(chatTimes[0]) {
-			client.SendChatMessage(chatMessages[0])
-			chatTimes = chatTimes[1:]
-			chatMessages = chatMessages[1:]
+			if err := client.SendRawAudioFrame(resampleFrame[i : i+samplesPerPacket*channels]); err != nil {
+				panic(err.Error())
+			}
+			if len(chats) > 0 && time.Now().After(t0.Add(chats[0].dt)) {
+				client.SendChatMessage(chats[0].message)
+				chats = chats[1:]
+			}
 		}
 	}
 }

@@ -201,8 +201,8 @@ func NewClient(serverAddr string) (*Client, error) {
 		audioCodecType:    AudioCodecOpus,
 		numAudioChannels:  2,
 		frameSizeFactor:   1,
-		basePacketSize:    256,
-		frameSizeSamples:  256,
+		basePacketSize:    512,
+		frameSizeSamples:  128,
 		useSequenceNumber: false,
 	}
 
@@ -339,13 +339,26 @@ func (c *Client) buildAudioFrame(opusFrame []byte) []byte {
 
 // buildRawAudioPacket constructs a raw audio packet from int16 PCM samples
 func (c *Client) buildRawAudioPacket(pcmFrame []int16) []byte {
-	expectedSamples := RAW_AUDIO_FRAME_SIZE_SAMPLES * c.numAudioChannels
+	expectedSamples := c.frameSizeSamples * c.numAudioChannels
 	if len(pcmFrame) != expectedSamples {
 		return nil // Error case, but we'll send empty
 	}
 
+	bufSize := len(pcmFrame) * 2
+	c.mu.RLock()
+	useSeqNum := c.useSequenceNumber
+	seqNum := c.sequenceNumber
+	if useSeqNum {
+		c.sequenceNumber++
+	}
+	c.mu.RUnlock()
+
 	// Allocate buffer for int16 samples
-	buf := make([]byte, len(pcmFrame)*2)
+	if useSeqNum {
+		bufSize++
+	}
+	buf := make([]byte, bufSize)
+	buf[bufSize-1] = seqNum
 
 	// Write int16 samples in little-endian format
 	for i, sample := range pcmFrame {
@@ -727,7 +740,9 @@ func (c *Client) handleAudioPacket(data []byte) {
 
 func (c *Client) handleConnectedMessage(msgID int, counter uint8, data []byte) {
 	// Send acknowledgment for this message
-	c.sendAcknowledgment(msgID, counter)
+	if msgID != MsgTypeAckn {
+		c.sendAcknowledgment(msgID, counter)
+	}
 
 	// Process the message
 	switch msgID {

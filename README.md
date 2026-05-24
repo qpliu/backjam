@@ -15,9 +15,7 @@ how much code can get generated and how wrong it can be.  It seems to
 me it's a good way to quickly get started, but fixing all the missing
 and incorrect code is best done manually.  I had hoped to be able to
 avoid having to learn anything about the Jamulus protocol, and that
-hope is dead.  Still, almost everything I need from it seems to work,
-but the most important part, getting the audio to the server and
-hearing it from another client, does not work.
+hope is dead.
 
 Additional envisioned features:
 
