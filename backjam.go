@@ -2,34 +2,40 @@ package main
 
 import (
 	"os"
-	"time"
-
-	"backjam/jamulus"
+	"strings"
+	"sync"
 )
 
 func main() {
-	input := os.Stdin
+	const server = "localhost:22124"
+	const clientName = "backjam-bot"
 
-	server := "localhost:22124"
-	if len(os.Args) > 1 {
-		server = os.Args[1]
-	}
-	client, err := jamulus.NewClient(server)
+	streamer, err := NewStreamer(server, clientName)
 	if err != nil {
 		panic(err.Error())
 	}
-	defer client.Close()
 
-	client.SetOnClientIDReceived(func(clientID int) {
-		client.UpdateChannelName("backjam-bot")
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	iarg := 1
+	streamer.SetOnChatReceived(func(text string) {
+		switch {
+		case strings.HasSuffix(text, "> .x"):
+			wg.Done()
+		case strings.HasSuffix(text, "> .s"):
+			streamer.StopStream()
+		case strings.HasSuffix(text, "> .p") && len(os.Args) > 1:
+			if iarg > len(os.Args) {
+				iarg = 1
+			}
+			err := streamer.Stream(os.Args[iarg], nil, 0)
+			if err != nil {
+				streamer.SendChat(err.Error())
+			}
+		}
 	})
 
-	StreamMP3(input, []ChatMessage{
-		ChatMessage{5 * time.Second, "5 second"},
-		ChatMessage{10 * time.Second, "10 second"},
-		ChatMessage{15 * time.Second, "15 second"},
-		ChatMessage{30 * time.Second, "30 second"},
-		ChatMessage{45 * time.Second, "45 second"},
-		ChatMessage{60 * time.Second, "60 second"},
-	}, client)
+	wg.Wait()
+	streamer.Close()
 }
