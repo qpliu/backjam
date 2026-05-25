@@ -84,7 +84,10 @@ func (s *Streamer) Stream(filename string, chatMessages []ChatMessage, offset ti
 		return err
 	}
 
-	//... seek decoder to offset
+	if _, err := decoder.Seek(4*int64(decoder.SampleRate())*int64(offset)/int64(time.Second), io.SeekStart); err != nil {
+		file.Close()
+		return err
+	}
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -139,7 +142,7 @@ func (s *Streamer) stream() {
 			return
 		}
 		if decoder == nil {
-			clear(resampledFrames[:samplesPerPacket*channels])
+			clear(resampledFrames)
 			time.Sleep(dt)
 			if err := s.client.SendRawAudioFrame(resampledFrames[:samplesPerPacket*channels]); err != nil {
 				panic(err.Error())
@@ -172,6 +175,7 @@ func (s *Streamer) stream() {
 			if count == 0 {
 				file.Close()
 				func() {
+					clear(resampledFrames)
 					s.lock.Lock()
 					defer s.lock.Unlock()
 					if s.decoder == decoder && s.t0 == t0 {
@@ -200,7 +204,7 @@ func (s *Streamer) stream() {
 			panic(err.Error())
 		}
 		currentFrameIndex += samplesPerPacket * channels
-		for len(chatMessages) > 0 && t0.Add(chatMessages[0].dt).After(t) {
+		for len(chatMessages) > 0 && t.After(t0.Add(chatMessages[0].dt)) {
 			s.client.SendChatMessage(chatMessages[0].message)
 			chatMessages = chatMessages[1:]
 		}
@@ -210,6 +214,8 @@ func (s *Streamer) stream() {
 			if s.decoder == decoder && s.t0 == t0 {
 				s.t = t
 				s.chatMessages = chatMessages
+			} else {
+				clear(resampledFrames)
 			}
 		}()
 	}
