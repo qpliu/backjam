@@ -10,17 +10,16 @@ go build
 
 Usage: ./backjam [CONFIG-FILE]
 
-Documentation:
+Documentation is [here](SLOPUMENTATION.md), on
 
-Configuration file: TBD
-
-How to configure mp3 files: TBD
-
-How to control the bot via Jamulus chat: TBD
+- how to configure the bot
+- how to add audio files for the bot to play
+- how to control the bot via Jamulus chat
 
 The jamulus package is my first attempt at slop coding.  It's amazing
 how much code can get generated and how wrong it can be.  It seems to
 me it's a good way to quickly get started, but fixing all the missing
 and incorrect code is best done manually.  I had hoped to be able to
 avoid having to learn anything about the Jamulus protocol, but that
-hope is dead.
+hope is dead.  However, I was very impressed by the documentation in
+[SLOPUMENTATION.md], which I just copied without modification.
