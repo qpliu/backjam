@@ -84,9 +84,16 @@ func (s *Streamer) Stream(filename string, chatMessages []ChatMessage, offset ti
 		return err
 	}
 
-	if _, err := decoder.Seek(4*int64(decoder.SampleRate())*int64(offset)/int64(time.Second), io.SeekStart); err != nil {
+	if _, err := decoder.Seek(4*(int64(decoder.SampleRate())*int64(offset)/int64(time.Second)), io.SeekStart); err != nil {
 		file.Close()
 		return err
+	}
+
+	for len(chatMessages) > 0 && chatMessages[0].dt < offset {
+		chatMessages = chatMessages[1:]
+	}
+	for i := range chatMessages {
+		chatMessages[i].dt -= offset
 	}
 
 	s.lock.Lock()
@@ -205,7 +212,9 @@ func (s *Streamer) stream() {
 		}
 		currentFrameIndex += samplesPerPacket * channels
 		for len(chatMessages) > 0 && t.After(t0.Add(chatMessages[0].dt)) {
-			s.client.SendChatMessage(chatMessages[0].message)
+			if chatMessages[0].message != "" {
+				s.client.SendChatMessage(chatMessages[0].message)
+			}
 			chatMessages = chatMessages[1:]
 		}
 		func() {
