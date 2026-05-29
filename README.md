@@ -22,4 +22,7 @@ me it's a good way to quickly get started, but fixing all the missing
 and incorrect code is best done manually.  I had hoped to be able to
 avoid having to learn anything about the Jamulus protocol, but that
 hope is dead.  However, I was very impressed by the documentation in
-[SLOPUMENTATION.md], which I just copied without modification.
+[SLOPUMENTATION.md](SLOPUMENTATION.md), which I just copied without
+modification.  It does imply that flac or wav audio files are supported,
+even though they are not, but they and other encodings easily could be,
+should it become useful to support them.

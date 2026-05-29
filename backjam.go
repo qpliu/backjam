@@ -46,6 +46,8 @@ func main() {
 }
 
 func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *sync.WaitGroup) func(string) {
+	var currentFile *File
+	var currentTag string
 	return func(text string) {
 		_, text, _ = strings.Cut(text, "<b>")
 		user, text, _ := strings.Cut(text, "</b></font> ")
@@ -67,22 +69,79 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 			}
 		}
 		switch cmd {
-		case ".x":
-			wg.Done()
-		case ".ls":
+		case ".f", ".file":
+			if arg == "" {
+				if currentFile != nil {
+					streamer.SendChat(currentFile.GetDescription())
+				}
+			} else if file, err := files.LoadFile(arg); err != nil {
+				streamer.SendChat(err.Error())
+			} else {
+				currentFile = file
+				currentTag = ""
+				streamer.SendChat(file.GetDescription())
+			}
+		case ".l", ".ls", ".list":
 			files.Rescan()
 			for _, text := range files.List(arg) {
 				streamer.SendChat(text)
 			}
-		case ".p":
+		case ".m", ".marker":
+			if currentFile == nil {
+			} else if arg == "" {
+				for _, cm := range currentFile.ChatMessages {
+					if cm.Tag != "" {
+						if currentTag == cm.Tag {
+							streamer.SendChat("*" + cm.Tag)
+						} else {
+							streamer.SendChat(cm.Tag)
+						}
+					}
+				}
+			} else {
+				currentTag = arg
+			}
+		case ".p", ".play":
 			if arg == "" {
-				streamer.StopStream()
+				if currentFile == nil {
+				} else if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag)); err != nil {
+					currentFile = nil
+					currentTag = ""
+					streamer.SendChat(err.Error())
+				}
 			} else if file, err := files.LoadFile(arg); err != nil {
+				currentFile = nil
+				currentTag = ""
 				streamer.SendChat(err.Error())
 			} else if err := streamer.Stream(file.GetAudioFileName(), file.GetChatMessages(), 0); err != nil {
+				currentFile = nil
+				currentTag = ""
 				streamer.SendChat(err.Error())
 			} else {
+				currentFile = nil
+				currentTag = ""
 				streamer.SendChat(file.GetDescription())
+			}
+		case ".s", ".stop":
+			streamer.StopStream()
+		case ".x", ".disconnect":
+			wg.Done()
+		case ".?", ".h", ".help":
+			for _, s := range []string{
+				"Bot control commands:",
+				".f          show selected file",
+				".f [file]   select file",
+				".l          list files",
+				".l [prefix] list files starting with prefix",
+				".m          show section markers of selected file",
+				".m [marker] select section at which to start playing",
+				".p          play selected file",
+				".p [file]   play file",
+				".s          stop playing",
+				".x          disconnect",
+				".?          display this help",
+			} {
+				streamer.SendChat(s)
 			}
 		}
 	}
