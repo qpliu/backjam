@@ -77,10 +77,10 @@ func (fs *Files) matching(arg string, includeDirs bool) []string {
 		if isDir && !includeDirs {
 			continue
 		}
-		if !strings.HasPrefix(k, arg) {
+		if ok, _ := filepath.Match(arg, k); ok {
+		} else if !strings.HasPrefix(k, arg) {
 			continue
-		}
-		if strings.ContainsRune(k[len(arg):], '/') {
+		} else if strings.ContainsRune(k[len(arg):], '/') {
 			continue
 		}
 		if isDir {

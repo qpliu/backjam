@@ -118,7 +118,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				currentTag = ""
 				streamer.SendChat(err.Error())
 			} else {
-				currentFile = nil
+				currentFile = file
 				currentTag = ""
 				streamer.SendChat(file.GetDescription())
 			}
