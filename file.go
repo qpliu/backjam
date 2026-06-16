@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,11 +24,11 @@ type File struct {
 	Bar           struct {
 		Beats int
 	}
+	Bars          map[string]float64
 	StartOffsetMs int
 	ChatMessages  []struct {
 		Tag  string
 		Text string
-		Beat int
 		Bar  int
 	}
 
@@ -116,37 +117,39 @@ func (f *File) GetChatMessages() []ChatMessage {
 	if f.Tempo <= 0 {
 		return nil
 	}
-	beatDuration := time.Minute / time.Duration(f.Tempo)
-	barDuration := 4 * beatDuration
-	if f.Bar.Beats > 0 {
-		barDuration = time.Duration(f.Bar.Beats) * beatDuration
-	}
 	chatMessages := make([]ChatMessage, len(f.ChatMessages))
 	for i, cm := range f.ChatMessages {
 		chatMessages[i].message = cm.Text
 		if cm.Bar > 0 {
-			chatMessages[i].dt = time.Duration(cm.Bar-1)*barDuration + time.Duration(f.StartOffsetMs)*time.Millisecond
-		} else if cm.Beat > 0 {
-			chatMessages[i].dt = time.Duration(cm.Beat-1)*beatDuration + time.Duration(f.StartOffsetMs)*time.Millisecond
+			chatMessages[i].dt = f.GetBarOffset(cm.Bar)
 		}
 	}
 	return chatMessages
 }
 
 func (f *File) GetOffset(tag string) time.Duration {
-	beatDuration := time.Minute / time.Duration(f.Tempo)
-	barDuration := 4 * beatDuration
-	if f.Bar.Beats > 0 {
-		barDuration = time.Duration(f.Bar.Beats) * beatDuration
-	}
 	for _, cm := range f.ChatMessages {
-		if tag == cm.Tag {
-			if cm.Bar > 0 {
-				return time.Duration(cm.Bar-1)*barDuration + time.Duration(f.StartOffsetMs)*time.Millisecond
-			} else if cm.Beat > 0 {
-				return time.Duration(cm.Beat-1)*beatDuration + time.Duration(f.StartOffsetMs)*time.Millisecond
-			}
+		if tag == cm.Tag && cm.Bar > 0 {
+			return f.GetBarOffset(cm.Bar)
 		}
 	}
+	if bar, err := strconv.Atoi(tag); err == nil {
+		return f.GetBarOffset(bar)
+	}
 	return 0
+}
+
+func (f *File) GetBarOffset(bar int) time.Duration {
+	barLen := float64(4)
+	if f.Bar.Beats > 0 {
+		barLen = float64(f.Bar.Beats)
+	}
+	beat := float64(0)
+	for i := 1; i < bar; i++ {
+		if newBarLen, ok := f.Bars[strconv.Itoa(i)]; ok {
+			barLen = newBarLen
+		}
+		beat += barLen
+	}
+	return time.Duration(f.StartOffsetMs)*time.Millisecond + time.Duration(beat)*time.Minute/time.Duration(f.Tempo)
 }
