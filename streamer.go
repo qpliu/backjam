@@ -21,6 +21,7 @@ type Streamer struct {
 	t0           time.Time
 	t            time.Time
 	chatMessages []ChatMessage
+	volume       float64
 }
 
 type ChatMessage struct {
@@ -74,7 +75,7 @@ func (s *Streamer) StopStream() {
 	}
 }
 
-func (s *Streamer) Stream(filename string, chatMessages []ChatMessage, offset time.Duration) error {
+func (s *Streamer) Stream(filename string, chatMessages []ChatMessage, offset time.Duration, volume float64) error {
 	file, err := os.Open(filename)
 	if err != nil {
 		return err
@@ -106,6 +107,7 @@ func (s *Streamer) Stream(filename string, chatMessages []ChatMessage, offset ti
 	s.chatMessages = chatMessages
 	s.t0 = time.Now().Add(20 * time.Millisecond)
 	s.t = s.t0
+	s.volume = volume
 	return nil
 }
 
@@ -176,6 +178,10 @@ func (s *Streamer) stream() {
 				}
 				for i := range n / 2 {
 					decodedFrames[count+i] = int16(buf[2*i]) | (int16(buf[2*i+1]) << 8)
+					if s.volume != 0 {
+						signal := min(max(float64(decodedFrames[count+i])*s.volume, -0x8000), 0x7fff)
+						decodedFrames[count+i] = int16(signal)
+					}
 				}
 				count += n / 2
 			}

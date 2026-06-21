@@ -49,6 +49,7 @@ func main() {
 func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *sync.WaitGroup) func(string) {
 	var currentFile *File
 	var currentTag string
+	var currentVolume float64
 	return func(text string) {
 		_, text, _ = strings.Cut(text, "<b>")
 		user, text, _ := strings.Cut(text, "</b></font> ")
@@ -80,6 +81,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 			} else {
 				currentFile = file
 				currentTag = ""
+				currentVolume = file.Volume
 				streamer.SendChat(file.GetDescription())
 			}
 		case ".l", ".ls", ".list":
@@ -115,33 +117,43 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 		case ".p", ".play":
 			if arg == "" {
 				if currentFile == nil {
-				} else if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag)); err != nil {
+				} else if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume); err != nil {
 					currentFile = nil
 					currentTag = ""
+					currentVolume = 0
 					streamer.SendChat(err.Error())
 				}
 			} else if arg[0] == '@' && currentFile != nil {
 				currentTag = arg[1:]
-				if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag)); err != nil {
+				if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume); err != nil {
 					currentFile = nil
 					currentTag = ""
+					currentVolume = 0
 					streamer.SendChat(err.Error())
 				}
 			} else if file, err := files.LoadFile(arg); err != nil {
 				currentFile = nil
 				currentTag = ""
+				currentVolume = 0
 				streamer.SendChat(err.Error())
-			} else if err := streamer.Stream(file.GetAudioFileName(), file.GetChatMessages(), 0); err != nil {
+			} else if err := streamer.Stream(file.GetAudioFileName(), file.GetChatMessages(), 0, file.Volume); err != nil {
 				currentFile = nil
 				currentTag = ""
+				currentVolume = 0
 				streamer.SendChat(err.Error())
 			} else {
 				currentFile = file
 				currentTag = ""
+				currentVolume = file.Volume
 				streamer.SendChat(file.GetDescription())
 			}
 		case ".s", ".stop":
 			streamer.StopStream()
+		case ".v", ".volume":
+			if v, err := strconv.ParseFloat(arg, 64); err == nil {
+				currentVolume = v
+			}
+			streamer.SendChat(strconv.FormatFloat(currentVolume, 'f', -1, 64))
 		case ".x", ".disconnect":
 			wg.Done()
 		case ".?", ".h", ".help":

@@ -31,6 +31,7 @@ type File struct {
 		Text string
 		Bar  int
 	}
+	Volume float64
 
 	dir string
 }
