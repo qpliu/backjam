@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -89,10 +90,20 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 		case ".m", ".marker":
 			if currentFile == nil {
 			} else if arg == "" {
+				bar, err := strconv.Atoi(currentTag)
+				isBar := err == nil
+				if bar == 0 {
+					isBar = false
+				}
 				for _, cm := range currentFile.ChatMessages {
+					if isBar && bar < cm.Bar {
+						streamer.SendChat("*" + currentTag)
+						isBar = false
+					}
 					if cm.Tag != "" {
-						if currentTag == cm.Tag {
+						if currentTag == cm.Tag || (isBar && cm.Bar == bar) {
 							streamer.SendChat("*" + cm.Tag)
+							isBar = false
 						} else {
 							streamer.SendChat(cm.Tag)
 						}
@@ -105,6 +116,13 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 			if arg == "" {
 				if currentFile == nil {
 				} else if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag)); err != nil {
+					currentFile = nil
+					currentTag = ""
+					streamer.SendChat(err.Error())
+				}
+			} else if arg[0] == '@' && currentFile != nil {
+				currentTag = arg[1:]
+				if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag)); err != nil {
 					currentFile = nil
 					currentTag = ""
 					streamer.SendChat(err.Error())
@@ -129,17 +147,18 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 		case ".?", ".h", ".help":
 			for _, s := range []string{
 				"Bot control commands:",
-				".f          show selected file",
-				".f [file]   select file",
-				".l          list files",
-				".l [prefix] list files starting with prefix",
-				".m          show section markers of selected file",
-				".m [marker] select section at which to start playing",
-				".p          play selected file",
-				".p [file]   play file",
-				".s          stop playing",
-				".x          disconnect",
-				".?          display this help",
+				".f           show selected file",
+				".f [file]    select file",
+				".l           list files",
+				".l [prefix]  list files starting with prefix",
+				".m           show section markers of selected file",
+				".m [marker]  select section at which to start playing",
+				".p           play selected file",
+				".p [file]    play file",
+				".p @[marker] play selected file starting at specified section",
+				".s           stop playing",
+				".x           disconnect",
+				".?           display this help",
 			} {
 				streamer.SendChat(s)
 			}
