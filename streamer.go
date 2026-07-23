@@ -22,6 +22,7 @@ type Streamer struct {
 	t            time.Time
 	chatMessages []ChatMessage
 	volume       float64
+	pitchShifter *jamulus.MultiChannelPhaseVocoder
 }
 
 type ChatMessage struct {
@@ -75,7 +76,7 @@ func (s *Streamer) StopStream() {
 	}
 }
 
-func (s *Streamer) Stream(filename string, chatMessages []ChatMessage, offset time.Duration, volume float64) error {
+func (s *Streamer) Stream(filename string, chatMessages []ChatMessage, offset time.Duration, volume float64, pitchShift int) error {
 	file, err := os.Open(filename)
 	if err != nil {
 		return err
@@ -108,6 +109,12 @@ func (s *Streamer) Stream(filename string, chatMessages []ChatMessage, offset ti
 	s.t0 = time.Now().Add(20 * time.Millisecond)
 	s.t = s.t0
 	s.volume = volume
+	if pitchShift == 0 {
+		s.pitchShifter = nil
+	} else {
+		const channels = 2
+		s.pitchShifter = jamulus.NewMultiChannelPhaseVocoder(channels, pitchShift)
+	}
 	return nil
 }
 
@@ -161,14 +168,16 @@ func (s *Streamer) stream() {
 		if currentFrameIndex == 0 || currentFrameIndex >= sampleRate*channels {
 			currentFrameIndex = 0
 			decodedFramesSize := decoder.SampleRate() * channels
-			if len(decodedFrames) < decodedFramesSize {
-				decodedFrames = make([]int16, decodedFramesSize)
+			paddedFramesSize := decodedFramesSize + jamulus.HopSize*channels - decodedFramesSize%(jamulus.HopSize*channels)
+			if len(decodedFrames) < paddedFramesSize {
+				decodedFrames = make([]int16, paddedFramesSize)
 			}
 			count := 0
 			for count < decodedFramesSize {
 				n, err := decoder.Read(buf[:min(len(buf), 2*(decodedFramesSize-count))])
 				if err != nil && err != io.EOF {
-					panic(err.Error())
+					s.client.SendChatMessage(err.Error())
+					break
 				}
 				if n%2 != 0 {
 					panic("?")
@@ -202,6 +211,11 @@ func (s *Streamer) stream() {
 			}
 			if count < len(decodedFrames) {
 				clear(decodedFrames[count:])
+			}
+			if s.pitchShifter != nil {
+				for i := 0; i < count; i += jamulus.HopSize * channels {
+					s.pitchShifter.ProcessInterleavedChunk(decodedFrames[i : i+jamulus.HopSize*channels])
+				}
 			}
 			n, err := jamulus.ResampleLinear(decodedFrames[:decodedFramesSize], decoder.SampleRate(), sampleRate, channels, resampledFrames)
 			if err != nil {

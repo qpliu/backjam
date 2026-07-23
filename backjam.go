@@ -50,6 +50,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 	var currentFile *File
 	var currentTag string
 	var currentVolume float64
+	var currentPitchShift int
 	return func(text string) {
 		_, text, _ = strings.Cut(text, "<b>")
 		user, text, _ := strings.Cut(text, "</b></font> ")
@@ -82,6 +83,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				currentFile = file
 				currentTag = ""
 				currentVolume = file.Volume
+				currentPitchShift = file.PitchShift
 				streamer.SendChat(file.GetDescription())
 			}
 		case ".l", ".ls", ".list":
@@ -117,36 +119,46 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 		case ".p", ".play":
 			if arg == "" {
 				if currentFile == nil {
-				} else if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume); err != nil {
+				} else if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume, currentPitchShift); err != nil {
 					currentFile = nil
 					currentTag = ""
 					currentVolume = 0
+					currentPitchShift = 0
 					streamer.SendChat(err.Error())
 				}
 			} else if arg[0] == '@' && currentFile != nil {
 				currentTag = arg[1:]
-				if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume); err != nil {
+				if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume, currentPitchShift); err != nil {
 					currentFile = nil
 					currentTag = ""
 					currentVolume = 0
+					currentPitchShift = 0
 					streamer.SendChat(err.Error())
 				}
 			} else if file, err := files.LoadFile(arg); err != nil {
 				currentFile = nil
 				currentTag = ""
 				currentVolume = 0
+				currentPitchShift = 0
 				streamer.SendChat(err.Error())
-			} else if err := streamer.Stream(file.GetAudioFileName(), file.GetChatMessages(), 0, file.Volume); err != nil {
+			} else if err := streamer.Stream(file.GetAudioFileName(), file.GetChatMessages(), 0, file.Volume, file.PitchShift); err != nil {
 				currentFile = nil
 				currentTag = ""
 				currentVolume = 0
+				currentPitchShift = 0
 				streamer.SendChat(err.Error())
 			} else {
 				currentFile = file
 				currentTag = ""
 				currentVolume = file.Volume
+				currentPitchShift = file.PitchShift
 				streamer.SendChat(file.GetDescription())
 			}
+		case ".ps", ".pitch", ".pitchshift":
+			if ps, err := strconv.ParseInt(arg, 10, 0); err == nil {
+				currentPitchShift = int(ps)
+			}
+			streamer.SendChat(strconv.Itoa(currentPitchShift))
 		case ".s", ".stop":
 			streamer.StopStream()
 		case ".v", ".volume":
@@ -168,8 +180,10 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				".p           play selected file",
 				".p [file]    play file",
 				".p @[marker] play selected file starting at specified section",
+				".ps [shift]  set pitch shift (cents)",
 				".s           stop playing",
 				".x           disconnect",
+				".v [volume]  set volume (decimal)",
 				".?           display this help",
 			} {
 				streamer.SendChat(s)
