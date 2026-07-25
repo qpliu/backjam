@@ -31,7 +31,7 @@ type File struct {
 		Text string
 		Bar  int
 	}
-	Volume     float64
+	Volume     int
 	PitchShift int
 
 	dir string

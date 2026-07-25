@@ -37,8 +37,7 @@ type MultiChannelPhaseVocoder struct {
 }
 
 // NewMultiChannelPhaseVocoder initializes internal states for N interleaved channels.
-func NewMultiChannelPhaseVocoder(numChannels int, pitchShift int) *MultiChannelPhaseVocoder {
-	pitchFactor := math.Pow(2, float64(pitchShift)/1200)
+func NewMultiChannelPhaseVocoder(numChannels int, pitchFactor float64) *MultiChannelPhaseVocoder {
 	pv := &MultiChannelPhaseVocoder{
 		pitch:          pitchFactor,
 		numChannels:    numChannels,
@@ -67,8 +66,8 @@ func NewMultiChannelPhaseVocoder(numChannels int, pitchShift int) *MultiChannelP
 
 // ProcessInterleavedChunk processes interleaved PCM16 audio blocks in-place.
 // The total slice length must be exactly (HopSize * numChannels).
-func (pv *MultiChannelPhaseVocoder) ProcessInterleavedChunk(chunk []int16) {
-	expectedLen := HopSize * pv.numChannels
+func (pv *MultiChannelPhaseVocoder) ProcessInterleavedChunk(chunk [][2]float64) {
+	expectedLen := HopSize
 	if len(chunk) != expectedLen {
 		return // Ignore fragments that mismatch configured channel/hop spacing
 	}
@@ -76,9 +75,8 @@ func (pv *MultiChannelPhaseVocoder) ProcessInterleavedChunk(chunk []int16) {
 	// 1. De-interleave and write incoming data into each channel's input history buffer
 	for i := 0; i < HopSize; i++ {
 		for ch := 0; ch < pv.numChannels; ch++ {
-			chunkIdx := i*pv.numChannels + ch
 			bufIdx := (pv.writeIdx + i) % len(pv.channels[ch].inputBuffer)
-			pv.channels[ch].inputBuffer[bufIdx] = float32(chunk[chunkIdx]) / 32768.0
+			pv.channels[ch].inputBuffer[bufIdx] = float32(chunk[i][ch]) / 32768.0
 		}
 	}
 	pv.writeIdx = (pv.writeIdx + HopSize) % len(pv.channels[0].inputBuffer)
@@ -171,7 +169,7 @@ func (pv *MultiChannelPhaseVocoder) ProcessInterleavedChunk(chunk []int16) {
 
 		for ch := 0; ch < pv.numChannels; ch++ {
 			cState := &pv.channels[ch]
-			normSample := cState.outputBuffer[outIdx] * 0.5
+			normSample := cState.outputBuffer[outIdx] * 1.0
 			cState.outputBuffer[outIdx] = 0.0 // Reset memory slot
 
 			scaled := normSample * 32767.0
@@ -182,8 +180,7 @@ func (pv *MultiChannelPhaseVocoder) ProcessInterleavedChunk(chunk []int16) {
 			}
 
 			// Map back to interleaved output indexing configuration
-			chunkIdx := i*pv.numChannels + ch
-			chunk[chunkIdx] = int16(scaled)
+			chunk[i][ch] = float64(scaled)
 		}
 	}
 

@@ -1,14 +1,18 @@
 package main
 
 import (
-	"io"
-	"os"
+	"math"
 	"sync"
 	"time"
 
-	"github.com/hajimehoshi/go-mp3"
-
 	"backjam/jamulus"
+	"backjam/stream"
+)
+
+const (
+	Channels         = stream.Channels
+	SampleRate       = 48000
+	SamplesPerPacket = 128
 )
 
 type Streamer struct {
@@ -16,13 +20,10 @@ type Streamer struct {
 	lock   sync.Mutex
 	closed bool
 
-	file         *os.File
-	decoder      *mp3.Decoder
-	t0           time.Time
-	t            time.Time
-	chatMessages []ChatMessage
-	volume       float64
-	pitchShifter *jamulus.MultiChannelPhaseVocoder
+	streamPacketizer stream.StreamPacketizer
+	t0               time.Time
+	t                time.Time
+	chatMessages     []ChatMessage
 }
 
 type ChatMessage struct {
@@ -38,7 +39,10 @@ func NewStreamer(server string, clientName string) (*Streamer, error) {
 	client.SetOnClientIDReceived(func(clientID int) {
 		client.UpdateChannelName(clientName)
 	})
-	s := &Streamer{client: client}
+	s := &Streamer{
+		client: client,
+		t:      time.Now(),
+	}
 	go s.stream()
 	return s, nil
 }
@@ -53,12 +57,8 @@ func (s *Streamer) SetOnChatReceived(callback func(string)) {
 
 func (s *Streamer) Close() error {
 	s.lock.Lock()
-	if s.file != nil {
-		s.file.Close()
-		s.file = nil
-		s.decoder = nil
-		s.chatMessages = nil
-	}
+	s.streamPacketizer.Stream(nil)
+	s.chatMessages = nil
 	s.closed = true
 	s.lock.Unlock()
 	time.Sleep(100 * time.Millisecond)
@@ -68,61 +68,50 @@ func (s *Streamer) Close() error {
 func (s *Streamer) StopStream() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	if s.file != nil {
-		s.file.Close()
-		s.file = nil
-		s.decoder = nil
-		s.chatMessages = nil
-	}
+	s.streamPacketizer.Stream(nil)
+	s.chatMessages = nil
 }
 
-func (s *Streamer) Stream(filename string, chatMessages []ChatMessage, offset time.Duration, volume float64, pitchShift int) error {
-	file, err := os.Open(filename)
+func (s *Streamer) Stream(filename string, chatMessages []ChatMessage, offset time.Duration, volume, pitchShift, speed int) error {
+	str, err := stream.MP3Stream(filename, offset)
 	if err != nil {
 		return err
 	}
-	decoder, err := mp3.NewDecoder(file)
-	if err != nil {
-		return err
+	if speed == 0 || speed == 100 {
+		if pitchShift != 0 {
+			str = stream.PitchshiftStream(math.Pow(2, float64(pitchShift)/1200), str)
+		}
+		str = stream.ResampleStream(SampleRate, str)
+	} else {
+		if pitchShift == 0 {
+			str = stream.PitchshiftStream(100/float64(speed), str)
+		} else {
+			str = stream.PitchshiftStream(100/float64(speed)*math.Pow(2, float64(pitchShift)/1200), str)
+		}
+		str = stream.ResampleStream(int(float64(SampleRate)*100/float64(speed)), str)
 	}
-
-	if _, err := decoder.Seek(4*(int64(decoder.SampleRate())*int64(offset)/int64(time.Second)), io.SeekStart); err != nil {
-		file.Close()
-		return err
-	}
+	str = stream.VolumeStream(volume, str)
 
 	for len(chatMessages) > 0 && chatMessages[0].dt < offset {
 		chatMessages = chatMessages[1:]
 	}
 	for i := range chatMessages {
 		chatMessages[i].dt -= offset
+		if speed != 0 && speed != 100 {
+			chatMessages[i].dt = time.Duration(float64(chatMessages[i].dt) * 100 / float64(speed))
+		}
 	}
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	if s.file != nil {
-		s.file.Close()
-	}
-	s.file = file
-	s.decoder = decoder
+	s.streamPacketizer.Stream(str)
 	s.chatMessages = chatMessages
 	s.t0 = time.Now().Add(20 * time.Millisecond)
 	s.t = s.t0
-	s.volume = volume
-	if pitchShift == 0 {
-		s.pitchShifter = nil
-	} else {
-		const channels = 2
-		s.pitchShifter = jamulus.NewMultiChannelPhaseVocoder(channels, pitchShift)
-	}
 	return nil
 }
 
 func (s *Streamer) stream() {
-	const channels = 2
-	const sampleRate = 48000
-	const samplesPerPacket = 128
-
 	// At nanosecond resolution, with a sample rate of 48000,
 	// this will send packets 1 microsecond too early per 4 seconds
 	// so after 4 minutes, the packets will be sent 60 microseconds
@@ -130,122 +119,44 @@ func (s *Streamer) stream() {
 	// Even 600 microseconds too early should not overflow the
 	// buffers, and I do not see using this to play 40 minute or
 	// longer audio files.
-	dt := time.Second * samplesPerPacket / sampleRate
-
-	buf := make([]byte, 8192)
-	var decodedFrames []int16
-	resampledFrames := make([]int16, sampleRate*channels)
-	currentFrameIndex := 0
+	dt := time.Second * SamplesPerPacket / SampleRate
+	frameBuffer := make([]int16, SamplesPerPacket*Channels)
 
 	for {
 		var closed bool
-		var file *os.File
-		var decoder *mp3.Decoder
 		var chatMessages []ChatMessage
 		var t0, t time.Time
 		func() {
 			s.lock.Lock()
 			defer s.lock.Unlock()
 			closed = s.closed
-			file = s.file
-			decoder = s.decoder
-			chatMessages = s.chatMessages
+			if s.streamPacketizer.Done() {
+				s.chatMessages = nil
+				s.t0 = time.Time{}
+			}
 			t0 = s.t0
 			t = s.t
+			s.t = t.Add(dt)
+			if err := s.streamPacketizer.NextFrame(frameBuffer); err != nil {
+				panic(err.Error())
+			}
+			for len(s.chatMessages) > 0 && t.After(t0.Add(s.chatMessages[0].dt)) {
+				if s.chatMessages[0].message != "" {
+					chatMessages = append(chatMessages, s.chatMessages[0])
+				}
+				s.chatMessages = s.chatMessages[1:]
+			}
 		}()
 		if closed {
 			s.client.Close()
 			return
 		}
-		if decoder == nil {
-			clear(resampledFrames)
-			time.Sleep(dt)
-			if err := s.client.SendRawAudioFrame(resampledFrames[:samplesPerPacket*channels]); err != nil {
-				panic(err.Error())
-			}
-			continue
-		}
-		if currentFrameIndex == 0 || currentFrameIndex >= sampleRate*channels {
-			currentFrameIndex = 0
-			decodedFramesSize := decoder.SampleRate() * channels
-			paddedFramesSize := decodedFramesSize + jamulus.HopSize*channels - decodedFramesSize%(jamulus.HopSize*channels)
-			if len(decodedFrames) < paddedFramesSize {
-				decodedFrames = make([]int16, paddedFramesSize)
-			}
-			count := 0
-			for count < decodedFramesSize {
-				n, err := decoder.Read(buf[:min(len(buf), 2*(decodedFramesSize-count))])
-				if err != nil && err != io.EOF {
-					s.client.SendChatMessage(err.Error())
-					break
-				}
-				if n%2 != 0 {
-					panic("?")
-				}
-				if n == 0 {
-					break
-				}
-				for i := range n / 2 {
-					decodedFrames[count+i] = int16(buf[2*i]) | (int16(buf[2*i+1]) << 8)
-					if s.volume != 0 {
-						signal := min(max(float64(decodedFrames[count+i])*s.volume, -0x8000), 0x7fff)
-						decodedFrames[count+i] = int16(signal)
-					}
-				}
-				count += n / 2
-			}
-			if count == 0 {
-				file.Close()
-				func() {
-					clear(resampledFrames)
-					s.lock.Lock()
-					defer s.lock.Unlock()
-					if s.decoder == decoder && s.t0 == t0 {
-						s.file = nil
-						s.decoder = nil
-						s.chatMessages = nil
-						s.t0 = time.Time{}
-					}
-				}()
-				continue
-			}
-			if count < len(decodedFrames) {
-				clear(decodedFrames[count:])
-			}
-			if s.pitchShifter != nil {
-				for i := 0; i < count; i += jamulus.HopSize * channels {
-					s.pitchShifter.ProcessInterleavedChunk(decodedFrames[i : i+jamulus.HopSize*channels])
-				}
-			}
-			n, err := jamulus.ResampleLinear(decodedFrames[:decodedFramesSize], decoder.SampleRate(), sampleRate, channels, resampledFrames)
-			if err != nil {
-				panic(err.Error())
-			}
-			if n < len(resampledFrames) {
-				clear(resampledFrames[n:])
-			}
-		}
 		time.Sleep(t.Sub(time.Now()))
-		t = t.Add(dt)
-		if err := s.client.SendRawAudioFrame(resampledFrames[currentFrameIndex : currentFrameIndex+samplesPerPacket*channels]); err != nil {
+		if err := s.client.SendRawAudioFrame(frameBuffer); err != nil {
 			panic(err.Error())
 		}
-		currentFrameIndex += samplesPerPacket * channels
-		for len(chatMessages) > 0 && t.After(t0.Add(chatMessages[0].dt)) {
-			if chatMessages[0].message != "" {
-				s.client.SendChatMessage(chatMessages[0].message)
-			}
-			chatMessages = chatMessages[1:]
+		for _, chatMessage := range chatMessages {
+			s.client.SendChatMessage(chatMessage.message)
 		}
-		func() {
-			s.lock.Lock()
-			defer s.lock.Unlock()
-			if s.decoder == decoder && s.t0 == t0 {
-				s.t = t
-				s.chatMessages = chatMessages
-			} else {
-				clear(resampledFrames)
-			}
-		}()
 	}
 }
