@@ -34,7 +34,7 @@ func (s *pitchshiftStream) Close() {
 }
 
 func (s *pitchshiftStream) Done() bool {
-	return s.stream.Done() && s.index >= s.count
+	return s.index >= s.count && s.stream.Done()
 }
 
 func (s *pitchshiftStream) Read(buffer [][Channels]float64) (int, error) {

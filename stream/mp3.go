@@ -46,7 +46,7 @@ func (s *mp3Stream) Close() {
 }
 
 func (s *mp3Stream) Done() bool {
-	return s.file == nil && s.index >= s.count
+	return s.index >= s.count && s.file == nil
 }
 
 func (s *mp3Stream) Read(buffer [][Channels]float64) (int, error) {

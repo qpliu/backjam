@@ -72,10 +72,24 @@ func (s *Streamer) StopStream() {
 	s.chatMessages = nil
 }
 
-func (s *Streamer) Stream(filename string, chatMessages []ChatMessage, offset time.Duration, volume, pitchShift, speed int) error {
-	str, err := stream.MP3Stream(filename, offset)
-	if err != nil {
-		return err
+func (s *Streamer) Stream(file *File, chatMessages []ChatMessage, offset time.Duration, volume, pitchShift, speed int, stemVolumes []int) error {
+	var str stream.Stream
+	if len(file.Stems) == 0 {
+		str1, err := stream.MP3Stream(file.GetAudioFileName(), offset)
+		if err != nil {
+			return err
+		}
+		str = str1
+	} else {
+		streams := make([]stream.Stream, len(file.Stems))
+		for i := range file.Stems {
+			str1, err := stream.MP3Stream(file.GetStemFileName(i), offset)
+			if err != nil {
+				return err
+			}
+			streams[i] = str1
+		}
+		str = stream.MixerStream(streams, stemVolumes)
 	}
 	if speed == 0 || speed == 100 {
 		if pitchShift != 0 {

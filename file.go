@@ -33,6 +33,11 @@ type File struct {
 	}
 	Volume     int
 	PitchShift int
+	Stems      []struct {
+		AudioFileName string
+		Tag           string
+		Volume        int
+	}
 
 	dir string
 }
@@ -154,4 +159,21 @@ func (f *File) GetBarOffset(bar int) time.Duration {
 		beat += barLen
 	}
 	return time.Duration(f.StartOffsetMs)*time.Millisecond + time.Duration(beat)*time.Minute/time.Duration(f.Tempo)
+}
+
+func (f *File) StemVolumes() []int {
+	v := make([]int, len(f.Stems))
+	for i := range f.Stems {
+		v[i] = f.Stems[i].Volume
+		if v[i] == 0 {
+			v[i] = 100
+		} else if v[i] < 0 {
+			v[i] = 0
+		}
+	}
+	return v
+}
+
+func (f *File) GetStemFileName(i int) string {
+	return filepath.Join(f.dir, f.Stems[i].AudioFileName)
 }

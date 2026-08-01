@@ -52,6 +52,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 	var currentVolume int
 	var currentPitchShift int
 	var currentSpeed int
+	var currentStemVolumes []int
 	return func(text string) {
 		_, text, _ = strings.Cut(text, "<b>")
 		user, text, _ := strings.Cut(text, "</b></font> ")
@@ -92,6 +93,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				currentVolume = file.Volume
 				currentPitchShift = file.PitchShift
 				currentSpeed = 0
+				currentStemVolumes = file.StemVolumes()
 				streamer.SendChat(file.GetDescription())
 			}
 		case ".l", ".ls", ".list":
@@ -127,22 +129,24 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 		case ".p", ".play":
 			if arg == "" {
 				if currentFile == nil {
-				} else if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume, currentPitchShift, currentSpeed); err != nil {
+				} else if err := streamer.Stream(currentFile, currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume, currentPitchShift, currentSpeed, currentStemVolumes); err != nil {
 					currentFile = nil
 					currentTag = ""
 					currentVolume = 0
 					currentPitchShift = 0
 					currentSpeed = 0
+					currentStemVolumes = nil
 					streamer.SendChat(err.Error())
 				}
 			} else if arg[0] == '@' && currentFile != nil {
 				currentTag = arg[1:]
-				if err := streamer.Stream(currentFile.GetAudioFileName(), currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume, currentPitchShift, currentSpeed); err != nil {
+				if err := streamer.Stream(currentFile, currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume, currentPitchShift, currentSpeed, currentStemVolumes); err != nil {
 					currentFile = nil
 					currentTag = ""
 					currentVolume = 0
 					currentPitchShift = 0
 					currentSpeed = 0
+					currentStemVolumes = nil
 					streamer.SendChat(err.Error())
 				}
 			} else if file, err := files.LoadFile(arg); err != nil {
@@ -151,13 +155,15 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				currentVolume = 0
 				currentPitchShift = 0
 				currentSpeed = 0
+				currentStemVolumes = nil
 				streamer.SendChat(err.Error())
-			} else if err := streamer.Stream(file.GetAudioFileName(), file.GetChatMessages(), 0, file.Volume, file.PitchShift, 0); err != nil {
+			} else if err := streamer.Stream(file, file.GetChatMessages(), 0, file.Volume, file.PitchShift, 0, file.StemVolumes()); err != nil {
 				currentFile = nil
 				currentTag = ""
 				currentVolume = 0
 				currentPitchShift = 0
 				currentSpeed = 0
+				currentStemVolumes = file.StemVolumes()
 				streamer.SendChat(err.Error())
 			} else {
 				currentFile = file
@@ -165,6 +171,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				currentVolume = file.Volume
 				currentPitchShift = file.PitchShift
 				currentSpeed = 0
+				currentStemVolumes = file.StemVolumes()
 				streamer.SendChat(file.GetDescription())
 			}
 		case ".ps", ".pitch", ".pitchshift":
@@ -179,6 +186,23 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				currentSpeed = int(i)
 			}
 			streamer.SendChat(strconv.Itoa(currentSpeed))
+		case ".st", ".stem", ".stems":
+			if currentFile != nil {
+				if arg != "" {
+					tag, vol, _ := strings.Cut(arg, " ")
+					if v, err := strconv.ParseInt(vol, 10, 0); err == nil {
+						for i, stem := range currentFile.Stems {
+							if stem.Tag == tag {
+								currentStemVolumes[i] = int(v)
+								break
+							}
+						}
+					}
+				}
+				for i, stem := range currentFile.Stems {
+					streamer.SendChat(stem.Tag + " " + strconv.Itoa(currentStemVolumes[i]))
+				}
+			}
 		case ".v", ".volume":
 			if i, err := strconv.ParseInt(arg, 10, 0); err == nil {
 				currentVolume = int(i)
@@ -202,6 +226,8 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				".ps [shift]  set pitch shift (cents)",
 				".s           stop playing",
 				".sp [speed]  set playback speed (percentage)",
+				".st          list stems",
+				".st [stem] [volume] set stem volume",
 				".x           disconnect",
 				".v [volume]  set volume (percentage)",
 				".?           display this help",
