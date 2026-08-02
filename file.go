@@ -13,8 +13,9 @@ import (
 )
 
 type Files struct {
-	dir   string
-	items map[string]bool
+	dir    string
+	mp3dir string
+	items  map[string]bool
 }
 
 type File struct {
@@ -39,11 +40,14 @@ type File struct {
 		Volume        int
 	}
 
-	dir string
+	mp3dir string
 }
 
-func NewFiles(dir string) (*Files, error) {
-	fs := &Files{dir: dir, items: make(map[string]bool)}
+func NewFiles(dir, mp3dir string) (*Files, error) {
+	if mp3dir == "" {
+		mp3dir = dir
+	}
+	fs := &Files{dir: dir, mp3dir: mp3dir, items: make(map[string]bool)}
 	fs.Rescan()
 	return fs, nil
 }
@@ -105,7 +109,7 @@ func (fs *Files) LoadFile(arg string) (*File, error) {
 	if len(matching) != 1 {
 		return nil, fmt.Errorf("file not found")
 	}
-	f := &File{dir: fs.dir}
+	f := &File{mp3dir: fs.mp3dir}
 	if _, err := toml.DecodeFile(filepath.Join(fs.dir, fmt.Sprintf("%s.toml", matching[0])), f); err != nil {
 		return nil, err
 	}
@@ -113,7 +117,7 @@ func (fs *Files) LoadFile(arg string) (*File, error) {
 }
 
 func (f *File) GetAudioFileName() string {
-	return filepath.Join(f.dir, f.AudioFileName)
+	return filepath.Join(f.mp3dir, f.AudioFileName)
 }
 
 func (f *File) GetDescription() string {
@@ -175,5 +179,5 @@ func (f *File) StemVolumes() []int {
 }
 
 func (f *File) GetStemFileName(i int) string {
-	return filepath.Join(f.dir, f.Stems[i].AudioFileName)
+	return filepath.Join(f.mp3dir, f.Stems[i].AudioFileName)
 }

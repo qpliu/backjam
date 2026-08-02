@@ -13,6 +13,7 @@ type Config struct {
 	Server     string
 	ClientName string
 	Dir        string
+	MP3Dir     string
 	Users      []string
 }
 
@@ -29,7 +30,7 @@ func main() {
 		}
 	}
 
-	files, err := NewFiles(config.Dir)
+	files, err := NewFiles(config.Dir, config.MP3Dir)
 	if err != nil {
 		panic(err.Error())
 	}
