@@ -117,12 +117,12 @@ func (s *Streamer) Stream(file *File, params StreamerParams) error {
 	}
 	str = stream.VolumeStream(params.Volume, str)
 	if params.CountIn && offset == 0 && file.Tempo > 0 {
-		countInOffset := time.Millisecond * time.Duration(file.CountInOffsetMs)
 		speed := params.Speed
 		if speed == 0 {
 			speed = 100
 		}
-		clickInterval := time.Duration(int64(float64(time.Minute) / float64(file.Tempo) * float64(speed) / 100))
+		countInOffset := time.Millisecond * time.Duration(float64(file.CountInOffsetMs)*100/float64(speed))
+		clickInterval := time.Duration(int64(float64(time.Minute) / float64(file.Tempo) * 100 / float64(speed)))
 		str = stream.ClickStream(countInOffset, clickInterval, file.CountIn, SampleRate, str)
 	}
 
