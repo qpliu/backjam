@@ -26,6 +26,15 @@ type Streamer struct {
 	chatMessages     []ChatMessage
 }
 
+type StreamerParams struct {
+	Tag         string
+	Volume      int
+	PitchShift  int
+	Speed       int
+	StemVolumes []int
+	CountIn     bool
+}
+
 type ChatMessage struct {
 	dt      time.Duration
 	message string
@@ -72,7 +81,9 @@ func (s *Streamer) StopStream() {
 	s.chatMessages = nil
 }
 
-func (s *Streamer) Stream(file *File, chatMessages []ChatMessage, offset time.Duration, volume, pitchShift, speed int, stemVolumes []int) error {
+func (s *Streamer) Stream(file *File, params StreamerParams) error {
+	offset := file.GetOffset(params.Tag)
+	chatMessages := file.GetChatMessages()
 	var str stream.Stream
 	if len(file.Stems) == 0 {
 		str1, err := stream.MP3Stream(file.GetAudioFileName(), offset)
@@ -89,30 +100,39 @@ func (s *Streamer) Stream(file *File, chatMessages []ChatMessage, offset time.Du
 			}
 			streams[i] = str1
 		}
-		str = stream.MixerStream(streams, stemVolumes)
+		str = stream.MixerStream(streams, params.StemVolumes)
 	}
-	if speed == 0 || speed == 100 {
-		if pitchShift != 0 {
-			str = stream.PitchshiftStream(math.Pow(2, float64(pitchShift)/1200), str)
+	if params.Speed == 0 || params.Speed == 100 {
+		if params.PitchShift != 0 {
+			str = stream.PitchshiftStream(math.Pow(2, float64(params.PitchShift)/1200), str)
 		}
 		str = stream.ResampleStream(SampleRate, str)
 	} else {
-		if pitchShift == 0 {
-			str = stream.PitchshiftStream(100/float64(speed), str)
+		if params.PitchShift == 0 {
+			str = stream.PitchshiftStream(100/float64(params.Speed), str)
 		} else {
-			str = stream.PitchshiftStream(100/float64(speed)*math.Pow(2, float64(pitchShift)/1200), str)
+			str = stream.PitchshiftStream(100/float64(params.Speed)*math.Pow(2, float64(params.PitchShift)/1200), str)
 		}
-		str = stream.ResampleStream(int(float64(SampleRate)*100/float64(speed)), str)
+		str = stream.ResampleStream(int(float64(SampleRate)*100/float64(params.Speed)), str)
 	}
-	str = stream.VolumeStream(volume, str)
+	str = stream.VolumeStream(params.Volume, str)
+	if params.CountIn && offset == 0 && file.Tempo > 0 {
+		countInOffset := time.Millisecond * time.Duration(file.CountInOffsetMs)
+		speed := params.Speed
+		if speed == 0 {
+			speed = 100
+		}
+		clickInterval := time.Duration(int64(float64(time.Minute) / float64(file.Tempo) * float64(speed) / 100))
+		str = stream.ClickStream(countInOffset, clickInterval, file.CountIn, SampleRate, str)
+	}
 
 	for len(chatMessages) > 0 && chatMessages[0].dt < offset {
 		chatMessages = chatMessages[1:]
 	}
 	for i := range chatMessages {
 		chatMessages[i].dt -= offset
-		if speed != 0 && speed != 100 {
-			chatMessages[i].dt = time.Duration(float64(chatMessages[i].dt) * 100 / float64(speed))
+		if params.Speed != 0 && params.Speed != 100 {
+			chatMessages[i].dt = time.Duration(float64(chatMessages[i].dt) * 100 / float64(params.Speed))
 		}
 	}
 

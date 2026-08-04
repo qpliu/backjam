@@ -50,10 +50,7 @@ func main() {
 func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *sync.WaitGroup) func(string) {
 	var currentFile *File
 	var currentTag string
-	var currentVolume int
-	var currentPitchShift int
-	var currentSpeed int
-	var currentStemVolumes []int
+	var currentParams StreamerParams
 	return func(text string) {
 		_, text, _ = strings.Cut(text, "<b>")
 		user, text, _ := strings.Cut(text, "</b></font> ")
@@ -78,8 +75,19 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 		case ".bpm":
 			if currentFile == nil || currentFile.Tempo <= 0 {
 			} else if i, err := strconv.ParseInt(arg, 10, 0); err == nil {
-				currentSpeed = int(100 * float64(i) / float64(currentFile.Tempo))
-				streamer.SendChat(strconv.Itoa(currentSpeed))
+				currentParams.Speed = int(100 * float64(i) / float64(currentFile.Tempo))
+				streamer.SendChat(strconv.Itoa(currentParams.Speed))
+			}
+		case ".ci", ".countin":
+			if arg == "on" {
+				currentParams.CountIn = true
+			} else if arg == "off" {
+				currentParams.CountIn = false
+			}
+			if currentParams.CountIn && currentFile != nil && currentFile.CountIn > 0 {
+				streamer.SendChat("Count-in is on")
+			} else {
+				streamer.SendChat("Count-in is off")
 			}
 		case ".f", ".file":
 			if arg == "" {
@@ -90,11 +98,12 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				streamer.SendChat(err.Error())
 			} else {
 				currentFile = file
-				currentTag = ""
-				currentVolume = file.Volume
-				currentPitchShift = file.PitchShift
-				currentSpeed = 0
-				currentStemVolumes = file.StemVolumes()
+				currentParams = StreamerParams{
+					Volume:      file.Volume,
+					PitchShift:  file.PitchShift,
+					StemVolumes: file.StemVolumes(),
+					CountIn:     file.CountIn > 0,
+				}
 				streamer.SendChat(file.GetDescription())
 			}
 		case ".l", ".ls", ".list":
@@ -130,63 +139,51 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 		case ".p", ".play":
 			if arg == "" {
 				if currentFile == nil {
-				} else if err := streamer.Stream(currentFile, currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume, currentPitchShift, currentSpeed, currentStemVolumes); err != nil {
+				} else if err := streamer.Stream(currentFile, currentParams); err != nil {
 					currentFile = nil
-					currentTag = ""
-					currentVolume = 0
-					currentPitchShift = 0
-					currentSpeed = 0
-					currentStemVolumes = nil
+					currentParams = StreamerParams{}
 					streamer.SendChat(err.Error())
 				}
 			} else if arg[0] == '@' && currentFile != nil {
-				currentTag = arg[1:]
-				if err := streamer.Stream(currentFile, currentFile.GetChatMessages(), currentFile.GetOffset(currentTag), currentVolume, currentPitchShift, currentSpeed, currentStemVolumes); err != nil {
+				currentParams.Tag = arg[1:]
+				if err := streamer.Stream(currentFile, currentParams); err != nil {
 					currentFile = nil
-					currentTag = ""
-					currentVolume = 0
-					currentPitchShift = 0
-					currentSpeed = 0
-					currentStemVolumes = nil
+					currentParams = StreamerParams{}
 					streamer.SendChat(err.Error())
 				}
 			} else if file, err := files.LoadFile(arg); err != nil {
 				currentFile = nil
-				currentTag = ""
-				currentVolume = 0
-				currentPitchShift = 0
-				currentSpeed = 0
-				currentStemVolumes = nil
-				streamer.SendChat(err.Error())
-			} else if err := streamer.Stream(file, file.GetChatMessages(), 0, file.Volume, file.PitchShift, 0, file.StemVolumes()); err != nil {
-				currentFile = nil
-				currentTag = ""
-				currentVolume = 0
-				currentPitchShift = 0
-				currentSpeed = 0
-				currentStemVolumes = file.StemVolumes()
+				currentParams = StreamerParams{}
 				streamer.SendChat(err.Error())
 			} else {
-				currentFile = file
-				currentTag = ""
-				currentVolume = file.Volume
-				currentPitchShift = file.PitchShift
-				currentSpeed = 0
-				currentStemVolumes = file.StemVolumes()
-				streamer.SendChat(file.GetDescription())
+				currentParams = StreamerParams{
+					Volume:      file.Volume,
+					PitchShift:  file.PitchShift,
+					StemVolumes: file.StemVolumes(),
+					CountIn:     file.CountIn > 0,
+				}
+				if err := streamer.Stream(file, currentParams); err != nil {
+					currentFile = nil
+					currentParams = StreamerParams{}
+					streamer.SendChat(err.Error())
+				} else {
+					currentFile = file
+					streamer.SendChat(file.GetDescription())
+
+				}
 			}
 		case ".ps", ".pitch", ".pitchshift":
 			if i, err := strconv.ParseInt(arg, 10, 0); err == nil {
-				currentPitchShift = int(i)
+				currentParams.PitchShift = int(i)
 			}
-			streamer.SendChat(strconv.Itoa(currentPitchShift))
+			streamer.SendChat(strconv.Itoa(currentParams.PitchShift))
 		case ".s", ".stop":
 			streamer.StopStream()
 		case ".sp", ".speed":
 			if i, err := strconv.ParseInt(arg, 10, 0); err == nil {
-				currentSpeed = int(i)
+				currentParams.Speed = int(i)
 			}
-			streamer.SendChat(strconv.Itoa(currentSpeed))
+			streamer.SendChat(strconv.Itoa(currentParams.Speed))
 		case ".st", ".stem", ".stems":
 			if currentFile != nil {
 				if arg != "" {
@@ -194,27 +191,28 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 					if v, err := strconv.ParseInt(vol, 10, 0); err == nil {
 						for i, stem := range currentFile.Stems {
 							if stem.Tag == tag {
-								currentStemVolumes[i] = int(v)
+								currentParams.StemVolumes[i] = int(v)
 								break
 							}
 						}
 					}
 				}
 				for i, stem := range currentFile.Stems {
-					streamer.SendChat(stem.Tag + " " + strconv.Itoa(currentStemVolumes[i]))
+					streamer.SendChat(stem.Tag + " " + strconv.Itoa(currentParams.StemVolumes[i]))
 				}
 			}
 		case ".v", ".volume":
 			if i, err := strconv.ParseInt(arg, 10, 0); err == nil {
-				currentVolume = int(i)
+				currentParams.Volume = int(i)
 			}
-			streamer.SendChat(strconv.Itoa(currentVolume))
+			streamer.SendChat(strconv.Itoa(currentParams.Volume))
 		case ".x", ".disconnect":
 			wg.Done()
 		case ".?", ".h", ".help":
 			for _, s := range []string{
 				"Bot control commands:",
 				".bpm [bpm]   set playback speed (beats per minute) ",
+				".ci [on|off] turn count-in on/off",
 				".f           show selected file",
 				".f [file]    select file",
 				".l           list files",

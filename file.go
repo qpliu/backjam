@@ -19,10 +19,12 @@ type Files struct {
 }
 
 type File struct {
-	AudioFileName string
-	Description   string
-	Tempo         int
-	Bar           struct {
+	AudioFileName   string
+	Description     string
+	Tempo           int
+	CountIn         int
+	CountInOffsetMs int
+	Bar             struct {
 		Beats int
 	}
 	Bars          map[string]float64
