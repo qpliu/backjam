@@ -13,9 +13,8 @@ import (
 )
 
 type Files struct {
-	dir    string
-	mp3dir string
-	items  map[string]bool
+	dir   string
+	items map[string]fileType
 }
 
 type File struct {
@@ -36,42 +35,55 @@ type File struct {
 	}
 	Volume     int
 	PitchShift int
-	Stems      []struct {
-		AudioFileName string
-		Tag           string
-		Volume        int
-	}
-
-	mp3dir string
+	Stems      []StemFile
 }
 
-func NewFiles(dir, mp3dir string) (*Files, error) {
-	if mp3dir == "" {
-		mp3dir = dir
-	}
-	fs := &Files{dir: dir, mp3dir: mp3dir, items: make(map[string]bool)}
+type StemFile struct {
+	AudioFileName string
+	Tag           string
+	Volume        int
+}
+
+type fileType int
+
+const (
+	fileTypeDir fileType = iota
+	fileTypeTOML
+	fileTypeMP3
+)
+
+func NewFiles(dir string) (*Files, error) {
+	fs := &Files{dir: dir, items: make(map[string]fileType)}
 	fs.Rescan()
 	return fs, nil
 }
 
 func (fs *Files) Rescan() {
-	items := make(map[string]bool)
+	items := make(map[string]fileType)
 	fs.scan("", items)
 	fs.items = items
 }
 
-func (fs *Files) scan(dir string, items map[string]bool) {
+func (fs *Files) scan(dir string, items map[string]fileType) {
 	entries, err := os.ReadDir(filepath.Join(fs.dir, dir))
 	if err != nil {
 		panic(err.Error())
 	}
 	for _, entry := range entries {
-		name := entry.Name()
+		name := filepath.Join(dir, entry.Name())
 		if entry.IsDir() {
-			items[filepath.Join(dir, name)] = true
-			fs.scan(filepath.Join(dir, name), items)
+			if _, ok := items[name]; !ok {
+				items[name] = fileTypeDir
+			}
+			fs.scan(name, items)
 		} else if strings.HasSuffix(name, ".toml") {
-			items[filepath.Join(dir, name[:len(name)-5])] = false
+			name = name[:len(name)-5]
+			items[name] = fileTypeTOML
+		} else if strings.HasSuffix(name, ".mp3") {
+			name = name[:len(name)-4]
+			if items[name] != fileTypeTOML {
+				items[name] = fileTypeMP3
+			}
 		}
 	}
 }
@@ -83,12 +95,12 @@ func (fs *Files) List(arg string) []string {
 }
 
 func (fs *Files) matching(arg string, includeDirs bool) []string {
-	if isDir, ok := fs.items[arg]; ok && !includeDirs && !isDir {
+	if itemType, ok := fs.items[arg]; ok && !includeDirs && itemType != fileTypeDir {
 		return []string{arg}
 	}
 	results := []string{}
-	for k, isDir := range fs.items {
-		if isDir && !includeDirs {
+	for k, itemType := range fs.items {
+		if itemType == fileTypeDir && !includeDirs {
 			continue
 		}
 		if ok, _ := filepath.Match(arg, k); ok {
@@ -97,7 +109,7 @@ func (fs *Files) matching(arg string, includeDirs bool) []string {
 		} else if strings.ContainsRune(k[len(arg):], '/') {
 			continue
 		}
-		if isDir {
+		if itemType == fileTypeDir {
 			results = append(results, fmt.Sprintf("%s/", k))
 		} else {
 			results = append(results, k)
@@ -111,15 +123,41 @@ func (fs *Files) LoadFile(arg string) (*File, error) {
 	if len(matching) != 1 {
 		return nil, fmt.Errorf("file not found")
 	}
-	f := &File{mp3dir: fs.mp3dir}
-	if _, err := toml.DecodeFile(filepath.Join(fs.dir, fmt.Sprintf("%s.toml", matching[0])), f); err != nil {
-		return nil, err
+	switch fs.items[matching[0]] {
+	case fileTypeTOML:
+		f := &File{}
+		name := filepath.Join(fs.dir, matching[0])
+		if _, err := toml.DecodeFile(fmt.Sprintf("%s.toml", name), f); err != nil {
+			return nil, err
+		}
+		if f.AudioFileName != "" {
+			f.AudioFileName = filepath.Join(fs.dir, f.AudioFileName)
+		} else {
+			f.AudioFileName = fmt.Sprintf("%s.mp3", name)
+		}
+		if len(f.Stems) != 0 {
+			for i := range f.Stems {
+				f.Stems[i].AudioFileName = filepath.Join(fs.dir, f.Stems[i].AudioFileName)
+			}
+		} else {
+			entries, _ := os.ReadDir(name)
+			for _, entry := range entries {
+				entryName := entry.Name()
+				if strings.HasSuffix(entryName, ".mp3") {
+					f.Stems = append(f.Stems, StemFile{
+						AudioFileName: filepath.Join(name, entryName),
+						Tag:           entryName[:len(entryName)-4],
+					})
+				}
+			}
+		}
+		return f, nil
+	case fileTypeMP3:
+		return &File{
+			AudioFileName: fmt.Sprintf("%s.mp3", filepath.Join(fs.dir, matching[0])),
+		}, nil
 	}
-	return f, nil
-}
-
-func (f *File) GetAudioFileName() string {
-	return filepath.Join(f.mp3dir, f.AudioFileName)
+	return nil, fmt.Errorf("file not found")
 }
 
 func (f *File) GetDescription() string {
@@ -178,8 +216,4 @@ func (f *File) StemVolumes() []int {
 		}
 	}
 	return v
-}
-
-func (f *File) GetStemFileName(i int) string {
-	return filepath.Join(f.mp3dir, f.Stems[i].AudioFileName)
 }

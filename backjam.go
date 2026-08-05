@@ -13,7 +13,6 @@ type Config struct {
 	Server     string
 	ClientName string
 	Dir        string
-	MP3Dir     string
 	Users      []string
 }
 
@@ -30,7 +29,7 @@ func main() {
 		}
 	}
 
-	files, err := NewFiles(config.Dir, config.MP3Dir)
+	files, err := NewFiles(config.Dir)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -169,7 +168,6 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				} else {
 					currentFile = file
 					streamer.SendChat(file.GetDescription())
-
 				}
 			}
 		case ".ps", ".pitch", ".pitchshift":

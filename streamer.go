@@ -57,7 +57,9 @@ func NewStreamer(server string, clientName string) (*Streamer, error) {
 }
 
 func (s *Streamer) SendChat(text string) {
-	s.client.SendChatMessage(text)
+	if text != "" {
+		s.client.SendChatMessage(text)
+	}
 }
 
 func (s *Streamer) SetOnChatReceived(callback func(string)) {
@@ -86,15 +88,15 @@ func (s *Streamer) Stream(file *File, params StreamerParams) error {
 	chatMessages := file.GetChatMessages()
 	var str stream.Stream
 	if len(file.Stems) == 0 {
-		str1, err := stream.MP3Stream(file.GetAudioFileName(), offset)
+		str1, err := stream.MP3Stream(file.AudioFileName, offset)
 		if err != nil {
 			return err
 		}
 		str = str1
 	} else {
 		streams := make([]stream.Stream, len(file.Stems))
-		for i := range file.Stems {
-			str1, err := stream.MP3Stream(file.GetStemFileName(i), offset)
+		for i, stem := range file.Stems {
+			str1, err := stream.MP3Stream(stem.AudioFileName, offset)
 			if err != nil {
 				return err
 			}
