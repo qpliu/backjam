@@ -187,16 +187,13 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				if arg != "" {
 					tag, vol, _ := strings.Cut(arg, " ")
 					if v, err := strconv.ParseInt(vol, 10, 0); err == nil {
-						for i, stem := range currentFile.Stems {
-							if stem.Tag == tag {
-								currentParams.StemVolumes[i] = int(v)
-								break
-							}
+						if _, ok := currentParams.StemVolumes[tag]; ok {
+							currentParams.StemVolumes[tag] = int(v)
 						}
 					}
 				}
-				for i, stem := range currentFile.Stems {
-					streamer.SendChat(stem.Tag + " " + strconv.Itoa(currentParams.StemVolumes[i]))
+				for tag, volume := range currentParams.StemVolumes {
+					streamer.SendChat(tag + " " + strconv.Itoa(volume))
 				}
 			}
 		case ".v", ".volume":

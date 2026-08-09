@@ -35,12 +35,11 @@ type File struct {
 	}
 	Volume     int
 	PitchShift int
-	Stems      []StemFile
+	Stems      map[string]StemFile
 }
 
 type StemFile struct {
 	AudioFileName string
-	Tag           string
 	Volume        int
 }
 
@@ -135,19 +134,24 @@ func (fs *Files) LoadFile(arg string) (*File, error) {
 		} else {
 			f.AudioFileName = fmt.Sprintf("%s.mp3", name)
 		}
-		if len(f.Stems) != 0 {
-			for i := range f.Stems {
-				f.Stems[i].AudioFileName = filepath.Join(fs.dir, f.Stems[i].AudioFileName)
+		if f.Stems == nil {
+			f.Stems = map[string]StemFile{}
+		}
+		stemFiles, _ := os.ReadDir(name)
+		for _, entry := range stemFiles {
+			entryName := entry.Name()
+			if !strings.HasSuffix(entryName, ".mp3") {
+				continue
 			}
-		} else {
-			entries, _ := os.ReadDir(name)
-			for _, entry := range entries {
-				entryName := entry.Name()
-				if strings.HasSuffix(entryName, ".mp3") {
-					f.Stems = append(f.Stems, StemFile{
-						AudioFileName: filepath.Join(name, entryName),
-						Tag:           entryName[:len(entryName)-4],
-					})
+			tag := entryName[:len(entryName)-4]
+			if stem, ok := f.Stems[tag]; ok {
+				if stem.AudioFileName == "" {
+					stem.AudioFileName = filepath.Join(name, entryName)
+					f.Stems[tag] = stem
+				}
+			} else {
+				f.Stems[tag] = StemFile{
+					AudioFileName: filepath.Join(name, entryName),
 				}
 			}
 		}
@@ -205,14 +209,15 @@ func (f *File) GetBarOffset(bar int) time.Duration {
 	return time.Duration(f.StartOffsetMs)*time.Millisecond + time.Duration(beat)*time.Minute/time.Duration(f.Tempo)
 }
 
-func (f *File) StemVolumes() []int {
-	v := make([]int, len(f.Stems))
-	for i := range f.Stems {
-		v[i] = f.Stems[i].Volume
-		if v[i] == 0 {
-			v[i] = 100
-		} else if v[i] < 0 {
-			v[i] = 0
+func (f *File) StemVolumes() map[string]int {
+	v := map[string]int{}
+	for tag, stem := range f.Stems {
+		if stem.Volume == 0 {
+			v[tag] = 100
+		} else if stem.Volume < 0 {
+			v[tag] = 0
+		} else {
+			v[tag] = stem.Volume
 		}
 	}
 	return v

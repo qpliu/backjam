@@ -31,7 +31,7 @@ type StreamerParams struct {
 	Volume      int
 	PitchShift  int
 	Speed       int
-	StemVolumes []int
+	StemVolumes map[string]int
 	CountIn     bool
 }
 
@@ -94,15 +94,17 @@ func (s *Streamer) Stream(file *File, params StreamerParams) error {
 		}
 		str = str1
 	} else {
-		streams := make([]stream.Stream, len(file.Stems))
-		for i, stem := range file.Stems {
+		streams := make([]stream.Stream, 0, len(file.Stems))
+		streamVolumes := make([]int, 0, len(file.Stems))
+		for tag, stem := range file.Stems {
 			str1, err := stream.MP3Stream(stem.AudioFileName, offset)
 			if err != nil {
 				return err
 			}
-			streams[i] = str1
+			streams = append(streams, str1)
+			streamVolumes = append(streamVolumes, params.StemVolumes[tag])
 		}
-		str = stream.MixerStream(streams, params.StemVolumes)
+		str = stream.MixerStream(streams, streamVolumes)
 	}
 	if params.Speed == 0 || params.Speed == 100 {
 		if params.PitchShift != 0 {
