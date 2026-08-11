@@ -97,24 +97,30 @@ func (fs *Files) matching(arg string, includeDirs bool) []string {
 	if itemType, ok := fs.items[arg]; ok && !includeDirs && itemType != fileTypeDir {
 		return []string{arg}
 	}
-	results := []string{}
-	for k, itemType := range fs.items {
-		if itemType == fileTypeDir && !includeDirs {
+	for {
+		results := []string{}
+		for k, itemType := range fs.items {
+			if itemType == fileTypeDir && !includeDirs {
+				continue
+			}
+			if ok, _ := filepath.Match(arg, k); ok {
+			} else if !strings.HasPrefix(k, arg) {
+				continue
+			} else if strings.ContainsRune(k[len(arg):], '/') {
+				continue
+			}
+			if itemType == fileTypeDir {
+				results = append(results, fmt.Sprintf("%s/", k))
+			} else {
+				results = append(results, k)
+			}
+		}
+		if len(results) == 0 && !strings.HasSuffix("*", arg) {
+			arg += "*"
 			continue
 		}
-		if ok, _ := filepath.Match(arg, k); ok {
-		} else if !strings.HasPrefix(k, arg) {
-			continue
-		} else if strings.ContainsRune(k[len(arg):], '/') {
-			continue
-		}
-		if itemType == fileTypeDir {
-			results = append(results, fmt.Sprintf("%s/", k))
-		} else {
-			results = append(results, k)
-		}
+		return results
 	}
-	return results
 }
 
 func (fs *Files) LoadFile(arg string) (*File, error) {
