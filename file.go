@@ -23,12 +23,10 @@ type File struct {
 	Tempo           int
 	CountIn         int
 	CountInOffsetMs int
-	Bar             struct {
-		Beats int
-	}
-	Bars          map[string]float64
-	StartOffsetMs int
-	ChatMessages  []struct {
+	Bar             int
+	Bars            map[string]float64
+	StartOffsetMs   int
+	ChatMessages    []struct {
 		Tag  string
 		Text string
 		Bar  int
@@ -97,14 +95,28 @@ func (fs *Files) matching(arg string, includeDirs bool) []string {
 	if itemType, ok := fs.items[arg]; ok && !includeDirs && itemType != fileTypeDir {
 		return []string{arg}
 	}
+	if len(arg) > 0 && arg[0] == '/' {
+		a := "*/"
+		arg = arg[1:]
+		for len(arg) > 0 && arg[0] == '/' {
+			a += "*/"
+			arg = arg[1:]
+		}
+		arg = a + arg
+	}
+	foldCase := false
 	for {
 		results := []string{}
 		for k, itemType := range fs.items {
 			if itemType == fileTypeDir && !includeDirs {
 				continue
 			}
-			if ok, _ := filepath.Match(arg, k); ok {
-			} else if !strings.HasPrefix(k, arg) {
+			key := k
+			if foldCase {
+				key = strings.ToLower(key)
+			}
+			if ok, _ := filepath.Match(arg, key); ok {
+			} else if !strings.HasPrefix(key, arg) {
 				continue
 			} else if strings.ContainsRune(k[len(arg):], '/') {
 				continue
@@ -119,6 +131,10 @@ func (fs *Files) matching(arg string, includeDirs bool) []string {
 			arg += "*"
 			continue
 		}
+		if len(results) == 0 && !foldCase {
+			foldCase = true
+			arg = strings.ToLower(arg)
+		}
 		return results
 	}
 }
@@ -130,7 +146,7 @@ func (fs *Files) LoadFile(arg string) (*File, error) {
 	}
 	switch fs.items[matching[0]] {
 	case fileTypeTOML:
-		f := &File{}
+		f := &File{Bar: 4}
 		name := filepath.Join(fs.dir, matching[0])
 		if _, err := toml.DecodeFile(fmt.Sprintf("%s.toml", name), f); err != nil {
 			return nil, err
@@ -165,6 +181,7 @@ func (fs *Files) LoadFile(arg string) (*File, error) {
 	case fileTypeMP3:
 		return &File{
 			AudioFileName: fmt.Sprintf("%s.mp3", filepath.Join(fs.dir, matching[0])),
+			Bar:           4,
 		}, nil
 	}
 	return nil, fmt.Errorf("file not found")
@@ -202,8 +219,8 @@ func (f *File) GetOffset(tag string) time.Duration {
 
 func (f *File) GetBarOffset(bar int) time.Duration {
 	barLen := float64(4)
-	if f.Bar.Beats > 0 {
-		barLen = float64(f.Bar.Beats)
+	if f.Bar > 0 {
+		barLen = float64(f.Bar)
 	}
 	beat := float64(0)
 	for i := 1; i < bar; i++ {
