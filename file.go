@@ -127,13 +127,14 @@ func (fs *Files) matching(arg string, includeDirs bool) []string {
 				results = append(results, k)
 			}
 		}
-		if len(results) == 0 && !strings.HasSuffix("*", arg) {
+		if len(results) == 0 && !strings.HasSuffix(arg, "*") {
 			arg += "*"
 			continue
 		}
 		if len(results) == 0 && !foldCase {
 			foldCase = true
 			arg = strings.ToLower(arg)
+			continue
 		}
 		return results
 	}

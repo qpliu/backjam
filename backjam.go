@@ -48,7 +48,6 @@ func main() {
 
 func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *sync.WaitGroup) func(string) {
 	var currentFile *File
-	var currentTag string
 	var currentParams StreamerParams
 	return func(text string) {
 		_, text, _ = strings.Cut(text, "<b>")
@@ -113,18 +112,18 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 		case ".m", ".marker":
 			if currentFile == nil {
 			} else if arg == "" {
-				bar, err := strconv.Atoi(currentTag)
+				bar, err := strconv.Atoi(currentParams.Tag)
 				isBar := err == nil
-				if bar == 0 {
+				if bar <= 0 {
 					isBar = false
 				}
 				for _, cm := range currentFile.ChatMessages {
 					if isBar && bar < cm.Bar {
-						streamer.SendChat("*" + currentTag)
+						streamer.SendChat("*" + currentParams.Tag)
 						isBar = false
 					}
 					if cm.Tag != "" {
-						if currentTag == cm.Tag || (isBar && cm.Bar == bar) {
+						if currentParams.Tag == cm.Tag || (isBar && cm.Bar == bar) {
 							streamer.SendChat("*" + cm.Tag)
 							isBar = false
 						} else {
@@ -133,7 +132,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 					}
 				}
 			} else {
-				currentTag = arg
+				currentParams.Tag = arg
 			}
 		case ".p", ".play":
 			if arg == "" {
