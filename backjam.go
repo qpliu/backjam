@@ -14,6 +14,7 @@ type Config struct {
 	ClientName string
 	Dir        string
 	Users      []string
+	Defaults   File
 }
 
 func main() {
@@ -21,6 +22,15 @@ func main() {
 		Server:     "localhost:22124",
 		ClientName: "backjam-bot",
 		Dir:        "./music",
+		Defaults: File{
+			Bar:    4,
+			Volume: 45,
+			Stems: map[string]StemFile{
+				"vocals": StemFile{
+					Volume: 70,
+				},
+			},
+		},
 	}
 
 	if len(os.Args) > 1 {
@@ -92,7 +102,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 				if currentFile != nil {
 					streamer.SendChat(currentFile.GetDescription())
 				}
-			} else if file, err := files.LoadFile(arg); err != nil {
+			} else if file, err := files.LoadFile(arg, config.Defaults); err != nil {
 				streamer.SendChat(err.Error())
 			} else {
 				currentFile = file
@@ -149,7 +159,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 					currentParams = StreamerParams{}
 					streamer.SendChat(err.Error())
 				}
-			} else if file, err := files.LoadFile(arg); err != nil {
+			} else if file, err := files.LoadFile(arg, config.Defaults); err != nil {
 				currentFile = nil
 				currentParams = StreamerParams{}
 				streamer.SendChat(err.Error())

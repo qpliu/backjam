@@ -140,14 +140,19 @@ func (fs *Files) matching(arg string, includeDirs bool) []string {
 	}
 }
 
-func (fs *Files) LoadFile(arg string) (*File, error) {
+func (fs *Files) LoadFile(arg string, defaults File) (*File, error) {
 	matching := fs.matching(arg, false)
-	if len(matching) != 1 {
+	if len(matching) == 0 {
 		return nil, fmt.Errorf("file not found")
+	} else if len(matching) > 1 {
+		return nil, fmt.Errorf("multiple matching files found")
 	}
 	switch fs.items[matching[0]] {
 	case fileTypeTOML:
-		f := &File{Bar: 4}
+		f := &File{
+			Bar:    defaults.Bar,
+			Volume: defaults.Volume,
+		}
 		name := filepath.Join(fs.dir, matching[0])
 		if _, err := toml.DecodeFile(fmt.Sprintf("%s.toml", name), f); err != nil {
 			return nil, err
@@ -178,11 +183,20 @@ func (fs *Files) LoadFile(arg string) (*File, error) {
 				}
 			}
 		}
+		for tag, stem := range f.Stems {
+			if stem.Volume == 0 {
+				if defaultStem, ok := defaults.Stems[tag]; ok {
+					stem.Volume = defaultStem.Volume
+					f.Stems[tag] = stem
+				}
+			}
+		}
 		return f, nil
 	case fileTypeMP3:
 		return &File{
 			AudioFileName: fmt.Sprintf("%s.mp3", filepath.Join(fs.dir, matching[0])),
-			Bar:           4,
+			Bar:           defaults.Bar,
+			Volume:        defaults.Volume,
 		}, nil
 	}
 	return nil, fmt.Errorf("file not found")
