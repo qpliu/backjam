@@ -84,3 +84,9 @@ func (s *mp3Stream) Read(buffer [][Channels]float64) (int, error) {
 func (s *mp3Stream) SampleRate() int {
 	return s.decoder.SampleRate()
 }
+
+func (s *mp3Stream) SetVolume(volume int) {
+}
+
+func (s *mp3Stream) SetStemVolume(tag string, volume int) {
+}

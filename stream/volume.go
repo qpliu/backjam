@@ -36,3 +36,11 @@ func (s *volumeStream) Read(buffer [][Channels]float64) (int, error) {
 func (s *volumeStream) SampleRate() int {
 	return s.stream.SampleRate()
 }
+
+func (s *volumeStream) SetVolume(volume int) {
+	s.volume = float64(volume) / 100
+}
+
+func (s *volumeStream) SetStemVolume(tag string, volume int) {
+	s.stream.SetStemVolume(tag, volume)
+}

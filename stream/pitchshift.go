@@ -61,3 +61,11 @@ func (s *pitchshiftStream) Read(buffer [][Channels]float64) (int, error) {
 func (s *pitchshiftStream) SampleRate() int {
 	return s.stream.SampleRate()
 }
+
+func (s *pitchshiftStream) SetVolume(volume int) {
+	s.stream.SetVolume(volume)
+}
+
+func (s *pitchshiftStream) SetStemVolume(tag string, volume int) {
+	s.stream.SetStemVolume(tag, volume)
+}

@@ -108,3 +108,11 @@ func (s *clickStream) Read(buffer [][Channels]float64) (int, error) {
 func (s *clickStream) SampleRate() int {
 	return s.sampleRate
 }
+
+func (s *clickStream) SetVolume(volume int) {
+	s.stream.SetVolume(volume)
+}
+
+func (s *clickStream) SetStemVolume(tag string, volume int) {
+	s.stream.SetStemVolume(tag, volume)
+}

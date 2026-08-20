@@ -47,6 +47,18 @@ func (s *StreamPacketizer) NextFrame(frame []int16) error {
 	return nil
 }
 
+func (s *StreamPacketizer) SetVolume(volume int) {
+	if s.stream != nil {
+		s.stream.SetVolume(volume)
+	}
+}
+
+func (s *StreamPacketizer) SetStemVolume(tag string, volume int) {
+	if s.stream != nil {
+		s.stream.SetStemVolume(tag, volume)
+	}
+}
+
 func (s *StreamPacketizer) Done() bool {
 	return s.stream == nil
 }

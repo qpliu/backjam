@@ -83,6 +83,18 @@ func (s *Streamer) StopStream() {
 	s.chatMessages = nil
 }
 
+func (s *Streamer) SetVolume(volume int) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.streamPacketizer.SetVolume(volume)
+}
+
+func (s *Streamer) SetStemVolume(tag string, volume int) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.streamPacketizer.SetStemVolume(tag, volume)
+}
+
 func (s *Streamer) Stream(file *File, params StreamerParams) error {
 	offset := file.GetOffset(params.Tag)
 	chatMessages := file.GetChatMessages()
@@ -95,6 +107,7 @@ func (s *Streamer) Stream(file *File, params StreamerParams) error {
 		str = str1
 	} else {
 		streams := make([]stream.Stream, 0, len(file.Stems))
+		tags := make([]string, 0, len(file.Stems))
 		streamVolumes := make([]int, 0, len(file.Stems))
 		for tag, stem := range file.Stems {
 			str1, err := stream.MP3Stream(stem.AudioFileName, offset)
@@ -102,9 +115,10 @@ func (s *Streamer) Stream(file *File, params StreamerParams) error {
 				return err
 			}
 			streams = append(streams, str1)
+			tags = append(tags, tag)
 			streamVolumes = append(streamVolumes, params.StemVolumes[tag])
 		}
-		str = stream.MixerStream(streams, streamVolumes)
+		str = stream.MixerStream(streams, tags, streamVolumes)
 	}
 	if params.Speed == 0 || params.Speed == 100 {
 		if params.PitchShift != 0 {

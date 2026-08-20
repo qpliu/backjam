@@ -6,6 +6,7 @@ const (
 
 type mixerStream struct {
 	streams []Stream
+	tags    []string
 	volumes []float64
 
 	buffer [][mixerBufferSize][Channels]float64
@@ -13,7 +14,7 @@ type mixerStream struct {
 	count  int
 }
 
-func MixerStream(streams []Stream, volumes []int) Stream {
+func MixerStream(streams []Stream, tags []string, volumes []int) Stream {
 	vols := make([]float64, len(streams))
 	for i := range vols {
 		if i < len(volumes) {
@@ -24,6 +25,7 @@ func MixerStream(streams []Stream, volumes []int) Stream {
 	}
 	return &mixerStream{
 		streams: streams,
+		tags:    tags,
 		volumes: vols,
 		buffer:  make([][mixerBufferSize][Channels]float64, len(streams)),
 	}
@@ -68,4 +70,15 @@ func (s *mixerStream) Read(buffer [][Channels]float64) (int, error) {
 
 func (s *mixerStream) SampleRate() int {
 	return s.streams[0].SampleRate()
+}
+
+func (s *mixerStream) SetVolume(volume int) {
+}
+
+func (s *mixerStream) SetStemVolume(tag string, volume int) {
+	for i := range s.tags {
+		if tag == s.tags[i] {
+			s.volumes[i] = float64(volume) / 100
+		}
+	}
 }

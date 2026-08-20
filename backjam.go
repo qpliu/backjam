@@ -198,6 +198,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 					if v, err := strconv.ParseInt(vol, 10, 0); err == nil {
 						if _, ok := currentParams.StemVolumes[tag]; ok {
 							currentParams.StemVolumes[tag] = int(v)
+							streamer.SetStemVolume(tag, int(v))
 						}
 					}
 				}
@@ -209,6 +210,7 @@ func ChatCommandHandler(config Config, files *Files, streamer *Streamer, wg *syn
 			if i, err := strconv.ParseInt(arg, 10, 0); err == nil {
 				currentParams.Volume = int(i)
 			}
+			streamer.SetVolume(currentParams.Volume)
 			streamer.SendChat(strconv.Itoa(currentParams.Volume))
 		case ".x", ".disconnect":
 			wg.Done()
