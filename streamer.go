@@ -20,6 +20,9 @@ type Streamer struct {
 	lock   sync.Mutex
 	closed bool
 
+	earlyWakeMicroseconds int
+	firstPacket           bool
+
 	streamPacketizer stream.StreamPacketizer
 	t0               time.Time
 	t                time.Time
@@ -40,7 +43,7 @@ type ChatMessage struct {
 	message string
 }
 
-func NewStreamer(server string, clientName string) (*Streamer, error) {
+func NewStreamer(server string, clientName string, earlyWakeMicroseconds int) (*Streamer, error) {
 	client, err := jamulus.NewClient(server)
 	if err != nil {
 		return nil, err
@@ -51,6 +54,8 @@ func NewStreamer(server string, clientName string) (*Streamer, error) {
 	s := &Streamer{
 		client: client,
 		t:      time.Now(),
+
+		earlyWakeMicroseconds: earlyWakeMicroseconds,
 	}
 	go s.stream()
 	return s, nil
@@ -160,6 +165,7 @@ func (s *Streamer) Stream(file *File, params StreamerParams) error {
 	s.chatMessages = chatMessages
 	s.t0 = time.Now().Add(20 * time.Millisecond)
 	s.t = s.t0
+	s.firstPacket = true
 	return nil
 }
 
@@ -178,6 +184,7 @@ func (s *Streamer) stream() {
 		var closed bool
 		var chatMessages []ChatMessage
 		var t0, t time.Time
+		var firstPacket bool
 		func() {
 			s.lock.Lock()
 			defer s.lock.Unlock()
@@ -189,6 +196,8 @@ func (s *Streamer) stream() {
 			t0 = s.t0
 			t = s.t
 			s.t = t.Add(dt)
+			firstPacket = s.firstPacket
+			s.firstPacket = false
 			if err := s.streamPacketizer.NextFrame(frameBuffer); err != nil {
 				panic(err.Error())
 			}
@@ -203,7 +212,11 @@ func (s *Streamer) stream() {
 			s.client.Close()
 			return
 		}
-		time.Sleep(t.Sub(time.Now()))
+		if firstPacket {
+			time.Sleep(t.Sub(time.Now()))
+		} else {
+			time.Sleep(t.Sub(time.Now()) - time.Duration(s.earlyWakeMicroseconds)*time.Microsecond) // wake up early to avoid the crackle when packets are sent too late when oversleeping, since packets sent too early should be buffered
+		}
 		if err := s.client.SendRawAudioFrame(frameBuffer); err != nil {
 			panic(err.Error())
 		}
