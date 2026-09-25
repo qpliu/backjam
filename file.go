@@ -112,11 +112,13 @@ func (fs *Files) matching(arg string, includeDirs bool) []string {
 				continue
 			}
 			key := k
+			matchArg := arg
 			if foldCase {
 				key = strings.ToLower(key)
+				matchArg = strings.ToLower(matchArg)
 			}
-			if ok, _ := filepath.Match(arg, key); ok {
-			} else if !strings.HasPrefix(key, arg) {
+			if ok, _ := filepath.Match(matchArg, key); ok {
+			} else if !strings.HasPrefix(key, matchArg) {
 				continue
 			} else if strings.ContainsRune(k[len(arg):], '/') {
 				continue
@@ -127,14 +129,19 @@ func (fs *Files) matching(arg string, includeDirs bool) []string {
 				results = append(results, k)
 			}
 		}
-		if len(results) == 0 && !strings.HasSuffix(arg, "*") {
-			arg += "*"
-			continue
-		}
-		if len(results) == 0 && !foldCase {
-			foldCase = true
-			arg = strings.ToLower(arg)
-			continue
+		if len(results) == 0 {
+			if !strings.HasSuffix(arg, "*") {
+				if !foldCase {
+					foldCase = true
+				} else {
+					foldCase = false
+					arg += "*"
+				}
+				continue
+			} else if !foldCase {
+				foldCase = true
+				continue
+			}
 		}
 		return results
 	}
