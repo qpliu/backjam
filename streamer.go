@@ -13,15 +13,16 @@ const (
 	Channels         = stream.Channels
 	SampleRate       = 48000
 	SamplesPerPacket = 128
+	Dt               = time.Second * SamplesPerPacket / SampleRate
+
+	StreamerBufferSize = 10
 )
 
 type Streamer struct {
 	client *jamulus.Client
 	lock   sync.Mutex
 	closed bool
-
-	earlyWakeMicroseconds int
-	firstPacket           bool
+	buffer chan streamerSendItem
 
 	streamPacketizer stream.StreamPacketizer
 	t0               time.Time
@@ -43,7 +44,12 @@ type ChatMessage struct {
 	message string
 }
 
-func NewStreamer(server string, clientName string, earlyWakeMicroseconds int) (*Streamer, error) {
+type streamerSendItem struct {
+	frame        []int16
+	chatMessages []string
+}
+
+func NewStreamer(server string, clientName string) (*Streamer, error) {
 	client, err := jamulus.NewClient(server)
 	if err != nil {
 		return nil, err
@@ -54,10 +60,10 @@ func NewStreamer(server string, clientName string, earlyWakeMicroseconds int) (*
 	s := &Streamer{
 		client: client,
 		t:      time.Now(),
-
-		earlyWakeMicroseconds: earlyWakeMicroseconds,
+		buffer: make(chan streamerSendItem, StreamerBufferSize-1),
 	}
-	go s.stream()
+	go s.sender()
+	go s.streamer()
 	return s, nil
 }
 
@@ -163,13 +169,11 @@ func (s *Streamer) Stream(file *File, params StreamerParams) error {
 	defer s.lock.Unlock()
 	s.streamPacketizer.Stream(str)
 	s.chatMessages = chatMessages
-	s.t0 = time.Now().Add(20 * time.Millisecond)
-	s.t = s.t0
-	s.firstPacket = true
+	s.t0 = s.t.Add(Dt)
 	return nil
 }
 
-func (s *Streamer) stream() {
+func (s *Streamer) streamer() {
 	// At nanosecond resolution, with a sample rate of 48000,
 	// this will send packets 1 microsecond too early per 4 seconds
 	// so after 4 minutes, the packets will be sent 60 microseconds
@@ -177,14 +181,16 @@ func (s *Streamer) stream() {
 	// Even 600 microseconds too early should not overflow the
 	// buffers, and I do not see using this to play 40 minute or
 	// longer audio files.
-	dt := time.Second * SamplesPerPacket / SampleRate
-	frameBuffer := make([]int16, SamplesPerPacket*Channels)
+	frameBuffers := make([][]int16, StreamerBufferSize)
+	for i := range StreamerBufferSize {
+		frameBuffers[i] = make([]int16, SamplesPerPacket*Channels)
+	}
 
+	frameBufferIndex := 0
 	for {
 		var closed bool
-		var chatMessages []ChatMessage
+		var chatMessages []string
 		var t0, t time.Time
-		var firstPacket bool
 		func() {
 			s.lock.Lock()
 			defer s.lock.Unlock()
@@ -195,15 +201,10 @@ func (s *Streamer) stream() {
 			}
 			t0 = s.t0
 			t = s.t
-			s.t = t.Add(dt)
-			firstPacket = s.firstPacket
-			s.firstPacket = false
-			if err := s.streamPacketizer.NextFrame(frameBuffer); err != nil {
-				panic(err.Error())
-			}
+			s.t = t.Add(Dt)
 			for len(s.chatMessages) > 0 && t.After(t0.Add(s.chatMessages[0].dt)) {
 				if s.chatMessages[0].message != "" {
-					chatMessages = append(chatMessages, s.chatMessages[0])
+					chatMessages = append(chatMessages, s.chatMessages[0].message)
 				}
 				s.chatMessages = s.chatMessages[1:]
 			}
@@ -212,16 +213,57 @@ func (s *Streamer) stream() {
 			s.client.Close()
 			return
 		}
-		if firstPacket {
-			time.Sleep(t.Sub(time.Now()))
-		} else {
-			time.Sleep(t.Sub(time.Now()) - time.Duration(s.earlyWakeMicroseconds)*time.Microsecond) // wake up early to avoid the crackle when packets are sent too late when oversleeping, since packets sent too early should be buffered
+		frameBufferIndex = (frameBufferIndex + 1) % StreamerBufferSize
+		if err := s.streamPacketizer.NextFrame(frameBuffers[frameBufferIndex]); err != nil {
+			panic(err.Error())
 		}
+		s.buffer <- streamerSendItem{frame: frameBuffers[frameBufferIndex], chatMessages: chatMessages}
+	}
+}
+
+func (s *Streamer) sender() {
+	frameBuffer := make([]int16, SamplesPerPacket*Channels)
+	var chatMessages []string
+	running := true
+	t := time.Now()
+	sendCount := 0
+	for running {
+		select {
+		case item := <-s.buffer:
+			copy(frameBuffer, item.frame)
+			chatMessages = item.chatMessages
+		default:
+			clear(frameBuffer)
+			chatMessages = nil
+		}
+		t = t.Add(Dt)
+		time.Sleep(t.Sub(time.Now()))
 		if err := s.client.SendRawAudioFrame(frameBuffer); err != nil {
+			func() {
+				s.lock.Lock()
+				defer s.lock.Unlock()
+				if s.closed {
+					running = false
+				}
+			}()
+			if !running {
+				break
+			}
 			panic(err.Error())
 		}
 		for _, chatMessage := range chatMessages {
-			s.client.SendChatMessage(chatMessage.message)
+			s.client.SendChatMessage(chatMessage)
+		}
+		sendCount++
+		if sendCount > 20 {
+			sendCount = 0
+			func() {
+				s.lock.Lock()
+				defer s.lock.Unlock()
+				if s.closed {
+					running = false
+				}
+			}()
 		}
 	}
 }

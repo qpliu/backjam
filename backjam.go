@@ -15,8 +15,6 @@ type Config struct {
 	Dir        string
 	Users      []string
 	Defaults   File
-
-	EarlyWakeMicroseconds int
 }
 
 func main() {
@@ -33,7 +31,6 @@ func main() {
 				},
 			},
 		},
-		EarlyWakeMicroseconds: 3500,
 	}
 
 	if len(os.Args) > 1 {
@@ -47,7 +44,7 @@ func main() {
 		panic(err.Error())
 	}
 
-	streamer, err := NewStreamer(config.Server, config.ClientName, config.EarlyWakeMicroseconds)
+	streamer, err := NewStreamer(config.Server, config.ClientName)
 	if err != nil {
 		panic(err.Error())
 	}
