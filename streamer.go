@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"runtime"
 	"sync"
 	"time"
 
@@ -15,7 +16,8 @@ const (
 	SamplesPerPacket = 128
 	Dt               = time.Second * SamplesPerPacket / SampleRate
 
-	StreamerBufferSize = 10
+	StreamerBufferSize          = 20
+	SenderPacketsPerClosedCheck = 50
 )
 
 type Streamer struct {
@@ -165,6 +167,7 @@ func (s *Streamer) Stream(file *File, params StreamerParams) error {
 		}
 	}
 
+	runtime.GC()
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	s.streamPacketizer.Stream(str)
@@ -255,7 +258,7 @@ func (s *Streamer) sender() {
 			s.client.SendChatMessage(chatMessage)
 		}
 		sendCount++
-		if sendCount > 20 {
+		if sendCount > SenderPacketsPerClosedCheck {
 			sendCount = 0
 			func() {
 				s.lock.Lock()
