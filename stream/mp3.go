@@ -26,7 +26,11 @@ func MP3Stream(filename string, offset time.Duration) (Stream, error) {
 		file.Close()
 		return nil, err
 	}
-	if _, err := decoder.Seek(4*(int64(decoder.SampleRate())*int64(offset)/int64(time.Second)), io.SeekStart); err != nil {
+	seekTarget := 4*(int64(decoder.SampleRate())*int64(offset)/int64(time.Second))
+	if seekTarget >= decoder.Length() {
+		seekTarget = decoder.Length() - 1
+	}
+	if _, err := decoder.Seek(seekTarget, io.SeekStart); err != nil {
 		file.Close()
 		return nil, err
 	}
