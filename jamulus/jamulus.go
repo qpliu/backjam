@@ -176,6 +176,9 @@ type Client struct {
 	onClientIDReceived     func(int)
 	onVersionAndOSReceived func(byte, string)
 	onRawAudioSupported    func()
+
+	rawAudioPacketBuffer []byte
+	bytesBufferPool      sync.Pool
 }
 
 // NewClient creates a new Jamulus client
@@ -204,6 +207,12 @@ func NewClient(serverAddr string) (*Client, error) {
 		basePacketSize:    512,
 		frameSizeSamples:  128,
 		useSequenceNumber: false,
+
+		bytesBufferPool: sync.Pool{
+			New: func() any {
+				return new(bytes.Buffer)
+			},
+		},
 	}
 
 	// Start receive loop
@@ -357,7 +366,11 @@ func (c *Client) buildRawAudioPacket(pcmFrame []int16) []byte {
 	if useSeqNum {
 		bufSize++
 	}
-	buf := make([]byte, bufSize)
+	buf := c.rawAudioPacketBuffer
+	if len(buf) < bufSize {
+		buf = make([]byte, bufSize)
+		c.rawAudioPacketBuffer = buf
+	}
 	buf[bufSize-1] = seqNum
 
 	// Write int16 samples in little-endian format
@@ -365,7 +378,7 @@ func (c *Client) buildRawAudioPacket(pcmFrame []int16) []byte {
 		binary.LittleEndian.PutUint16(buf[i*2:], uint16(sample))
 	}
 
-	return buf
+	return buf[:bufSize]
 }
 
 // SendChatMessage sends a chat message
@@ -387,7 +400,11 @@ func (c *Client) UpdateChannelInfo(info *ChannelInfo) error {
 		return fmt.Errorf("channel info cannot be nil")
 	}
 
-	data := new(bytes.Buffer)
+	data := c.bytesBufferPool.Get().(*bytes.Buffer)
+	defer func() {
+		data.Reset()
+		c.bytesBufferPool.Put(data)
+	}()
 
 	// Country (2 bytes - little endian)
 	binary.Write(data, binary.LittleEndian, uint16(getCountryIndex(info.Country)))
@@ -934,14 +951,22 @@ func (c *Client) handleRawAudioSupported() {
 
 func (c *Client) handleReqJitterBufSize() {
 	// Server is requesting jitter buffer size - send default size
-	data := new(bytes.Buffer)
+	data := c.bytesBufferPool.Get().(*bytes.Buffer)
+	defer func() {
+		data.Reset()
+		c.bytesBufferPool.Put(data)
+	}()
 	binary.Write(data, binary.LittleEndian, uint16(2)) // Default size
 	c.sendProtocolMessage(MsgTypeJitterBufSize, data.Bytes())
 }
 
 func (c *Client) handleReqChannelInfo() {
 	// Server is requesting channel info - send client info
-	data := new(bytes.Buffer)
+	data := c.bytesBufferPool.Get().(*bytes.Buffer)
+	defer func() {
+		data.Reset()
+		c.bytesBufferPool.Put(data)
+	}()
 	c.mu.RLock()
 	clientName := c.clientName
 	c.mu.RUnlock()
@@ -953,7 +978,11 @@ func (c *Client) handleReqChannelInfo() {
 
 func (c *Client) handleReqNetTransportProps() {
 	// Server is requesting network transport properties
-	data := new(bytes.Buffer)
+	data := c.bytesBufferPool.Get().(*bytes.Buffer)
+	defer func() {
+		data.Reset()
+		c.bytesBufferPool.Put(data)
+	}()
 	binary.Write(data, binary.LittleEndian, uint32(c.basePacketSize))      // Base packet size
 	binary.Write(data, binary.LittleEndian, uint16(c.frameSizeFactor))     // Block size factor
 	data.WriteByte(uint8(c.numAudioChannels))                              // Num audio channels
@@ -972,7 +1001,11 @@ func (c *Client) handleReqNetTransportProps() {
 // --- Message building ---
 
 func (c *Client) buildChatMessage(text string) []byte {
-	data := new(bytes.Buffer)
+	data := c.bytesBufferPool.Get().(*bytes.Buffer)
+	defer func() {
+		data.Reset()
+		c.bytesBufferPool.Put(data)
+	}()
 
 	// Message text with 2-byte little-endian length prefix
 	textBytes := []byte(text)
@@ -983,7 +1016,11 @@ func (c *Client) buildChatMessage(text string) []byte {
 }
 
 func (c *Client) buildClientIDMessage(clientID int, clientName string) []byte {
-	data := new(bytes.Buffer)
+	data := c.bytesBufferPool.Get().(*bytes.Buffer)
+	defer func() {
+		data.Reset()
+		c.bytesBufferPool.Put(data)
+	}()
 	binary.Write(data, binary.LittleEndian, uint16(clientID))
 	data.WriteByte(byte(len(clientName)))
 	data.WriteString(clientName)
@@ -999,7 +1036,11 @@ func (c *Client) buildProtocolMessage(msgID int, data []byte) []byte {
 }
 
 func (c *Client) buildProtocolMessageWithCounter(msgID int, counter uint8, data []byte) []byte {
-	buf := new(bytes.Buffer)
+	buf := c.bytesBufferPool.Get().(*bytes.Buffer)
+	defer func() {
+		buf.Reset()
+		c.bytesBufferPool.Put(buf)
+	}()
 
 	binary.Write(buf, binary.LittleEndian, uint16(0))
 	binary.Write(buf, binary.LittleEndian, uint16(msgID))
@@ -1020,7 +1061,11 @@ func (c *Client) buildProtocolMessageWithCounter(msgID int, counter uint8, data 
 
 // sendAcknowledgment sends an acknowledgment message for a received message
 func (c *Client) sendAcknowledgment(msgID int, counter uint8) error {
-	data := new(bytes.Buffer)
+	data := c.bytesBufferPool.Get().(*bytes.Buffer)
+	defer func() {
+		data.Reset()
+		c.bytesBufferPool.Put(data)
+	}()
 	binary.Write(data, binary.LittleEndian, uint16(msgID))
 
 	msg := c.buildProtocolMessageWithCounter(MsgTypeAckn, counter, data.Bytes())
